@@ -1,0 +1,11 @@
+{
+  "statusLine": {
+    "type": "command",
+    "command": "bash C:/Users/jtakh/.claude/statusline.sh"
+  },
+  "enabledPlugins": {
+    "supabase@claude-plugins-official": true
+  },
+  "effortLevel": "high",
+  "skipDangerousModePermissionPrompt": true
+}
