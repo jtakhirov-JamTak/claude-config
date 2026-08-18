@@ -1,4 +1,5 @@
 {
+  "model": "opus[1m]",
   "statusLine": {
     "type": "command",
     "command": "bash C:/Users/jtakh/.claude/statusline.sh"
@@ -7,5 +8,5 @@
     "supabase@claude-plugins-official": true
   },
   "effortLevel": "high",
-  "skipDangerousModePermissionPrompt": true
+  "tui": "default"
 }

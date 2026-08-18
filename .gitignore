@@ -8,10 +8,14 @@
 # --- Re-include the authored skill set ---
 !/commands/
 !/agents/
+!/CLAUDE.md
 !/REVIEWER_CONVENTIONS.md
 !/SKILLS_PROTOCOL.md
 !/settings.json
 !/.gitignore
+
+# Machine-local backup of the pre-cleanup permission list — never track.
+settings.local.json.pre-cleanup
 
 # --- Defense in depth: never track secrets or machine-local overrides, even if
 #     a rule above is ever widened. ---
