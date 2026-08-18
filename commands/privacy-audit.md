@@ -49,7 +49,7 @@ Client-side: every analytics tag, error sink, and third-party widget. Each is a 
 - **Access** — can a user view all data the system holds about them?
 - **Export** — endpoint that returns everything in a portable format. If it exists, verify it walks every user-scoped table (not just the obvious ones — derived snapshots and observation tables are commonly missed).
 - **Correction** — can a user edit identifiers and content?
-- **Deletion** — endpoint that cascades through every user-scoped table. Verify by reading the FK schema: each user-scoped table should have `ON DELETE CASCADE` back to the auth user, OR the deletion endpoint walks them explicitly. A table without a cascade and not in the walk is a deletion gap.
+- **Deletion** — endpoint that cascades through every user-scoped table. Each user-scoped table should have `ON DELETE CASCADE` back to the auth user, OR the deletion endpoint walks them explicitly; a table without a cascade and not in the walk is a deletion gap. **Verify against the LIVE DB, not just migration/type files** — those drift (a table added without a cascade, or a migration not yet applied, won't show in the files but will in the database). If a DB is reachable, run the `pg_constraint` cascade query from `/db-check` (do NOT use `information_schema` — it hides `auth.users` FKs from the query role and returns a false empty). Reading schema files is the fallback when there's no DB access; say which you used, and never claim "cascade verified" from files alone.
 - **Portability** — same as export but specifically in a structured, machine-readable format.
 
 ### 4. Security measures (state for the policy)

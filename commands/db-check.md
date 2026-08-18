@@ -49,6 +49,18 @@ order by table_name, column_name;
 For indexes: `select indexname from pg_indexes where indexname in (...);`
 For RLS: `select relname, relrowsecurity from pg_class where relname in (...);`
 For policies: `select policyname, tablename from pg_policies where tablename in (...);`
+For table existence: `select to_regclass('public.<table>') is not null;`
+For FK delete rules (esp. verifying `on delete cascade` to `auth.users` — e.g. before trusting an account-deletion cascade): use **`pg_constraint`, NOT `information_schema`**. `information_schema.referential_constraints` / `constraint_column_usage` HIDE constraints that reference `auth.users` from the query role (privilege filtering) and return empty — a silent false negative. Use:
+
+```sql
+select con.conrelid::regclass as table_name,
+       case con.confdeltype when 'c' then 'CASCADE' when 'a' then 'NO ACTION'
+            when 'n' then 'SET NULL' when 'r' then 'RESTRICT' else con.confdeltype::text end as on_delete
+from pg_constraint con
+join pg_class rel on rel.oid = con.confrelid
+join pg_namespace nsp on nsp.oid = rel.relnamespace
+where con.contype = 'f' and nsp.nspname = 'auth' and rel.relname = 'users';
+```
 
 ## Step 3 — Generate copy-paste remediation
 
@@ -74,6 +86,8 @@ The user typically pastes into the Supabase SQL Editor. Be explicit:
 ## Step 5 — If a Supabase MCP / CLI is connected, do it directly
 
 If the Supabase MCP server or CLI is authenticated in this session, run the verification query yourself and report the actual vs expected count instead of asking the user to paste. If not, produce the copy-paste blocks above — never claim a migration is verified that you couldn't actually query.
+
+**Do NOT trust a migration-tracking table as proof.** Supabase `list_migrations` (and `supabase_migrations.schema_migrations`) stays EMPTY when migrations are applied by pasting SQL into the web editor — the common case for a non-technical operator. An empty list does NOT mean "nothing applied"; it means the tracker wasn't used. Always verify the actual schema OBJECTS (`information_schema` / `pg_constraint` / `to_regclass`), never the tracker. (Confirmed 2026-06-08: `list_migrations` returned `[]` while all 45 migrations' objects were present on the live DB.)
 
 ## Output
 

@@ -85,6 +85,9 @@ If the diff touches UI, run `/mobile-check` on the changed pages for the full mo
 ### 11. Link and route integrity (mechanical — don't eyeball, resolve)
 Apply **LINK-RESOLVE** (`~/.claude/REVIEWER_CONVENTIONS.md` §6): extract every internal nav target near the diff (`href`, `<Link href>`, `router.push/replace`, `redirect`, route constants/maps) and resolve each against a real route on disk — App Router drops `(group)` segments and matches `[param]`. Any target with no matching route is a **live 404 → HIGH**. The most common instance is a link to a *deleted* page in a file the diff didn't touch, so resolve links in the surrounding files too.
 
+### 12. Documented-but-unenforced assumptions (hunt OMISSION, not just commission)
+The other 11 categories find *wrong code that's present*; this one finds *a safeguard that's absent* — the harder class, because there's nothing on screen to react to. Apply **ENFORCED-NOT-INTENDED** (`~/.claude/REVIEWER_CONVENTIONS.md` §6): for every invariant the code *states* (a "we assume…" / "callers guarantee…" / "card-only" comment, or a design that depends on one), find the line that actually ENFORCES it. If the only thing upholding it is a comment, a dashboard toggle, an env var, or human discipline, it's unenforced and can drift silently. Construct the break: the **producer-consumer gap** (the creation side never sets what the fulfillment side assumes — two correct files, one missing line) and the **out-of-repo control** (real enforcement lives in a dashboard/manual step the code can't see). A thorough reassuring comment *lowers* scrutiny — treat it as a flag, not a reassurance. Severity per what the invariant guards (money/auth/data → HIGH/CRITICAL).
+
 ## Output
 
 For each scenario you constructed:

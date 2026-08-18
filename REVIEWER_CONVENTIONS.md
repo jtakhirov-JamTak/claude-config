@@ -136,3 +136,19 @@ Clients that return `{ data, error }` (PostgREST/Supabase `maybeSingle()`, bare 
 ### VERSION-GUARD — bump the version symmetrically when a stored shape changes
 
 When code that computes a stored snapshot (a derived row, a cached `jsonb` blob, an AI output) changes the **shape** of what it writes (field added/removed/renamed/retyped), the version stamp must bump on BOTH sides: the code-side constant (`PROMPT_VERSION`/`GENERATOR_VERSION`) AND the DB-side column (`generator_version`/`ai_*_version`) the row carries. Reader and writer must filter on that version the same way — if the reader gates on `row.version === CURRENT` but the writer's cache-lookup doesn't, stale rows loop forever; if the writer bumps but the reader doesn't, new-shape rows render as garbage under old-shape code. Fall all-or-nothing per version: a mismatched row triggers live recompute, never a mixed render. A code-side bump with the DB column left untouched is traceability theater — old and new rows become indistinguishable → **HIGH**.
+
+### ENFORCED-NOT-INTENDED — an invariant must be enforced by code that can't silently drift, not merely documented or configured
+
+The cross-cutting one. Reviews reliably catch **commission** (wrong code that's present) and reliably MISS **omission** (a safeguard that's absent). The miss has a signature: a comment or design *states* an invariant ("card-only", "callers guarantee non-null", "PII is scrubbed", "capped at 1000 rows") while nothing in code actually *guarantees* it — and the reassuring comment LOWERS scrutiny because it reads as "handled." So for every assumption you can name in the code under review, find the line that ENFORCES it. If the only thing upholding it is (a) a comment, (b) a provider/dashboard toggle, (c) an env var or build-time convention, or (d) human discipline ("remember to bump the version"), treat it as **unenforced** — it can drift without a code change and without a failing test. Two recurring shapes:
+- **Producer–consumer gap** — the consumer/fulfillment side assumes a property the producer/creation side never sets: two individually-correct files with a missing line between them. Check the producer enforces what the consumer assumes.
+- **Out-of-repo control** — the real enforcement lives where the code can't see it (dashboard, manual ops step), so from the code's standpoint it's absent and driftable.
+
+Apply through each domain's lens (same rule, different surface):
+- **access** — an RLS *policy* exists but `ENABLE ROW LEVEL SECURITY` was never run (dead policy, open table); a route assumes middleware already authed it but the matcher excludes its path.
+- **privacy** — "PII scrubbed in `beforeSend`" while `beforeBreadcrumb` still leaks it; deletion assumes every table cascades but a newer table has no cascade FK (verify on the **live DB**, not the migration files).
+- **payments** — `payment_method_types` left unset, so "card-only" lives in the Stripe dashboard, not code.
+- **observability** — errors are *captured* but no *alert* routes them to a human: capture documented, paging unenforced.
+- **perf** — a `.limit()` cap assumed but dropped in a refactor; an index the query needs that the migration never applied; a provider row-cap (`db-max-rows`) that silently truncates.
+- **AI** — "user content is delimited from instructions" until a new field bypasses the delimiter; "output validated" while the banned-phrase walker skips nested array fields.
+
+Severity tracks what the unenforced invariant guards: money / auth / data-exposure → **HIGH/CRITICAL**; correctness / perf → **MEDIUM**. (`VERSION-GUARD` above is a specific instance of this rule — the version bump documented but not enforced symmetrically.)
