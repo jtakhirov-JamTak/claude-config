@@ -2,7 +2,7 @@
   "model": "opus[1m]",
   "statusLine": {
     "type": "command",
-    "command": "bash C:/Users/jtakh/.claude/statusline.sh"
+    "command": "powershell -NoProfile -ExecutionPolicy Bypass -File C:/Users/jtakh/.claude/statusline.ps1"
   },
   "enabledPlugins": {
     "supabase@claude-plugins-official": true

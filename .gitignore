@@ -1,6 +1,6 @@
-# ~/.claude is a config dir full of runtime state, transcripts, and secrets.
+﻿# ~/.claude is a config dir full of runtime state, transcripts, and secrets.
 # Strategy: ignore EVERYTHING at the root by default, then re-include only the
-# authored skill set. This is safer than denylisting noise — a new runtime file
+# authored skill set. This is safer than denylisting noise â€” a new runtime file
 # or cache dir can never accidentally get tracked.
 
 /*
@@ -11,10 +11,11 @@
 !/CLAUDE.md
 !/REVIEWER_CONVENTIONS.md
 !/SKILLS_PROTOCOL.md
+!/statusline.ps1
 !/settings.json
 !/.gitignore
 
-# Machine-local backup of the pre-cleanup permission list — never track.
+# Machine-local backup of the pre-cleanup permission list â€” never track.
 settings.local.json.pre-cleanup
 
 # --- Defense in depth: never track secrets or machine-local overrides, even if
