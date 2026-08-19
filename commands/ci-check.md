@@ -30,6 +30,7 @@ This is deliberately thin. The job is to move the **typecheck / lint / build** s
 - Does it run on the right trigger (push to main + PRs)?
 - Does it install with a frozen lockfile (`npm ci` / `--frozen-lockfile`) so CI matches the lockfile?
 - Does it run typecheck AND lint AND build — or is one silently missing?
+- Can any step report success without having run? Apply **VACUOUS-PASS** (`~/.claude/REVIEWER_CONVENTIONS.md` §6): a runner exiting 0 with zero test files, a spawn that failed unnoticed (see the `.cmd`-shim rule in `~/.claude/CLAUDE.md`), a threshold never calibrated against a real run. Mentally delete the step's input — if it still goes green, it is not a gate.
 - Is the Node version pinned to match the deploy target?
 - Are secrets referenced correctly (not echoed into logs)?
 - Is it fast enough to be useful (cache `node_modules` / the framework build cache)?

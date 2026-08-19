@@ -270,6 +270,10 @@ Both are individually good engineering. Together, with no signal in between, the
 
 Severity follows what the dead layer was for: a cache or derived table → **HIGH** (silently wrong data, unbounded duration); anything on a money, entitlement, or auth path → **CRITICAL**. This is a specific instance of `ENFORCED-NOT-INTENDED` — the invariant "the cache is populated" was intended everywhere and enforced nowhere.
 
+### VACUOUS-PASS — a gate that measured nothing must fail, not pass
+
+A green check has two possible meanings — "I looked and it was fine" and "I never looked" — and by default they are indistinguishable from the outside. Every gate must make the second meaning impossible to reach. The recurring instances: a test runner that exits 0 having discovered zero test files; a marker/grep assertion satisfied by the very artifact it was meant to reject; a report-consuming script that passes when the report directory is missing or empty; an assertion fed a sentinel instead of a measurement (`values.at(-1) ?? Infinity`); and a budget or threshold never calibrated against one real run, so it can only fire on a value nobody has ever observed. The audit questions: does the gate assert that it found something to measure **before** it asserts on the value? If you deleted the gate's input entirely, would it fail — or go green? Is the threshold traceable to a measured baseline, or invented? Retries make this worse rather than better: an intermittently red gate under `retries: 1` trains everyone to re-run instead of investigate, and the passing attempt reports a budget as met on evidence the first attempt never produced. Severity follows what the gate was protecting — a format/lint gate → **MEDIUM**; a test, migration, security, or performance gate → **HIGH**, because being the thing that noticed was the gate's entire purpose.
+
 ---
 
 ## 7. Maintaining this set

@@ -30,6 +30,8 @@ Test what has an **observable failure mode you can name**. Rank by blast radius:
 
 Do **not** test: framework behaviour, getters with no logic, code with no failure mode you can articulate (per the staff-reviewer calibration rule — a test for unbreakable code is noise). Don't chase a coverage percentage; chase the paths whose failure is silent and expensive.
 
+- **A green test that never ran is worse than a missing one** — apply **VACUOUS-PASS** (`~/.claude/REVIEWER_CONVENTIONS.md` §6). In `audit` mode, a suite that exits 0 having discovered zero files, or an assertion fed a sentinel instead of a measurement, is a **HIGH** gap and not coverage. In `write` mode, give the runner a guard that fails when it finds nothing to run.
+
 ## Mode: `write`
 
 1. State, in one line each, the failure modes worth a test for this target (from the ranking above).

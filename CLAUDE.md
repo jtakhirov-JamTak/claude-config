@@ -9,6 +9,18 @@ Applies to every project unless a project-level CLAUDE.md says otherwise.
 - Never work directly out of `C:\Users\jtakh` — it is the home directory, not a project.
   Start in the project folder so its CLAUDE.md loads and searches stay scoped.
 
+- Node scripts that spawn a CLI: `spawnSync("supabase")` / `spawnSync("npm")` cannot
+  launch Windows `.cmd` shims. Use `npx --no-install <cli>` with `shell: true` on win32,
+  and always surface `result.error` — unchecked, the script exits 0 and the gate reports
+  success without having run. This one recurred four times in eight days before it was
+  written down; see `VACUOUS-PASS` in `REVIEWER_CONVENTIONS.md` §6.
+- Every repo needs `.gitattributes` containing `* text=auto eol=lf`. Git for Windows
+  ships `core.autocrlf=true`, so without it a fresh clone materialises every file as
+  CRLF and `format:check` fails on all of them before a line is edited.
+- Gitignore Claude Code's own local state at a repo root — `session-context.md`,
+  `.claude/settings.local.json`, tool report artifacts. Prettier and lint scan the
+  repo root, so untracked local state fails `format:check`.
+
 ## Working style
 
 - Lead with the answer. Keep explanations short; expand only when asked.

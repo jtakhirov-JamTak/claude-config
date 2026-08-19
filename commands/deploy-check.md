@@ -25,6 +25,8 @@ Apply **VERIFY-GATE** (`~/.claude/REVIEWER_CONVENTIONS.md` §6) — discover the
 
 A repo with no single verify script is not a pass — it's a gap. Note it once in the report (`RISK`: no single local verification gate; consider adding a `verify` script) and continue with the discovered sequence.
 
+Apply **VACUOUS-PASS** (`~/.claude/REVIEWER_CONVENTIONS.md` §6) to the gate itself before trusting it green: a step that exits 0 having measured nothing is the one failure a verification pass cannot catch by re-running it. For each step ask whether deleting its input would fail it or green it. A false green here ships.
+
 ---
 
 # `scope=delta` — since-last-deploy risk review
