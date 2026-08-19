@@ -18,6 +18,18 @@ Applies to every project unless a project-level CLAUDE.md says otherwise.
   not spot them myself.
 - Before deleting or overwriting anything, show me what it is first.
 
+## Verification
+
+- Never state something as fact because I said it, because a note or doc said it,
+  or because it sounds right. Check the code. Run the query. Read the file.
+- For anything about data: query the live database. Do not infer schema or state
+  from migrations, type files, or an earlier conversation. A migration shows what
+  was intended. The database shows what is true.
+- If you cannot verify something, say "I have not verified this" in that sentence.
+  Never present it as fact and correct it later.
+- This applies to my own notes and pasted research. Treat them as claims to test,
+  not as facts to repeat.
+
 ## Code
 
 - Match the conventions already in the file. Don't introduce a new pattern for a
@@ -53,3 +65,7 @@ it — an uncommitted skill set is the one thing here with no backup.
 `/full-review`, `/grill`, `/deploy-check`, `/add-*`, etc.). Prefer these over generic
 equivalents — they encode project-specific conventions. Shared review conventions and
 the rules for maintaining the set: `~/.claude/REVIEWER_CONVENTIONS.md`.
+
+When I ask in normal words for something one of these commands covers, read that
+command file and follow it. Don't improvise your own version. Typing `/commit` and
+saying "commit and push" must behave identically.
