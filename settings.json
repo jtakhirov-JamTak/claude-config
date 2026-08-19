@@ -8,5 +8,17 @@
     "supabase@claude-plugins-official": true
   },
   "effortLevel": "high",
-  "tui": "default"
+  "tui": "default",
+  "permissions": {
+    "deny": [
+      "Read(~/**/.env)",
+      "Read(~/**/.env.local)",
+      "Read(~/**/.env.*.local)",
+      "Read(~/**/.env.production)",
+      "Bash(git reset --hard:*)",
+      "Bash(git clean:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)"
+    ]
+  }
 }
