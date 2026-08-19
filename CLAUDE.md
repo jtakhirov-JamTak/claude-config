@@ -24,8 +24,13 @@ Applies to every project unless a project-level CLAUDE.md says otherwise.
 ## Working style
 
 - Lead with the answer. Keep explanations short; expand only when asked.
-- If a fix isn't working after ~3 attempts, stop and say so rather than trying
-  progressively more speculative changes.
+- Two failed fixes mean the diagnosis is wrong, not the fix. Attempt 3 must test a
+  genuinely different explanation — never a third variation on the same theory — or
+  stop. On stopping, record per attempt: the theory, the evidence that disproved it,
+  and the remaining unknown. Say which layer you believe the cause is in before
+  editing code.
+- One intent per session. "While I'm here" is how rabbit holes start. Never leave a
+  session mid-broken — end at a green verify or an explicit stash.
 - Flag security and data-loss risks proactively, even when unasked — assume I will
   not spot them myself.
 - Before deleting or overwriting anything, show me what it is first.
@@ -49,6 +54,9 @@ Applies to every project unless a project-level CLAUDE.md says otherwise.
 - Don't add comments explaining what the code plainly does.
 - Never commit or push unless I ask.
 - Secrets belong in `.env` files only, never in source, logs, or committed docs.
+- Never delete data with history value — archive it (`archived_at`). Preserve user
+  input when a request fails. Only a user's explicit delete removes a row.
+- UTC in the database, always. Convert at the edge.
 
 ## Active projects
 
