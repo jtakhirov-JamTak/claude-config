@@ -58,6 +58,20 @@ Applies to every project unless a project-level CLAUDE.md says otherwise.
   input when a request fails. Only a user's explicit delete removes a row.
 - UTC in the database, always. Convert at the edge.
 
+## Recording what breaks
+
+- Every project keeps a fix log: one dated entry per real defect — problem · fix ·
+  regression test · where it was found. A confirmed failure is the highest-value test
+  that exists, so lock every fixed bug with a regression test on the exact failing input.
+- A template-derived app keeps two logs: `docs/FIX_LOG.md` for defects inherited from the
+  template, `docs/APP_FIX_LOG.md` for its own. Sort each by asking "would the next app
+  built from this template hit it?" — yes goes to the template's log, no stays local. A
+  project with no template keeps one log, its own.
+- Decisions get the same treatment (`docs/DECISIONS.md`), kept verbatim with the numbers
+  that settled them. Read it before re-attempting anything recorded as rejected — the
+  experiment has already been run, and a rejected optimisation is only useful if the
+  evidence against it survives.
+
 ## Active projects
 
 | Path | What it is | State |

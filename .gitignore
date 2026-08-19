@@ -10,7 +10,8 @@
 !/agents/
 !/CLAUDE.md
 !/REVIEWER_CONVENTIONS.md
-!/SKILLS_PROTOCOL.md
+!/.gitattributes
+!/hooks/
 !/statusline.ps1
 !/settings.json
 !/.gitignore
