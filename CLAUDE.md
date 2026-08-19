@@ -27,8 +27,10 @@ Applies to every project unless a project-level CLAUDE.md says otherwise.
 - Two failed fixes mean the diagnosis is wrong, not the fix. Attempt 3 must test a
   genuinely different explanation — never a third variation on the same theory — or
   stop. On stopping, record per attempt: the theory, the evidence that disproved it,
-  and the remaining unknown. Say which layer you believe the cause is in before
-  editing code.
+  and the remaining unknown — as a dated entry in the project's fix log with the fix
+  field left open. A protocol that says "record it" without naming a file never runs.
+  The disproved theories are the most valuable part: an unrecorded dead end gets walked
+  again. Say which layer you believe the cause is in before editing code.
 - One intent per session. "While I'm here" is how rabbit holes start. Never leave a
   session mid-broken — end at a green verify or an explicit stash.
 - Flag security and data-loss risks proactively, even when unasked — assume I will
@@ -67,6 +69,10 @@ Applies to every project unless a project-level CLAUDE.md says otherwise.
   template, `docs/APP_FIX_LOG.md` for its own. Sort each by asking "would the next app
   built from this template hit it?" — yes goes to the template's log, no stays local. A
   project with no template keeps one log, its own.
+- Any app holding real user data keeps a restore runbook: how to dump, how to restore
+  into a fresh project, how to verify the restore actually worked, and the date it was
+  last drilled. A backup that has never been restored is a hope, not a backup. Drill it
+  before launch and after any change to the backup path.
 - Decisions get the same treatment (`docs/DECISIONS.md`), kept verbatim with the numbers
   that settled them. Read it before re-attempting anything recorded as rejected — the
   experiment has already been run, and a rejected optimisation is only useful if the
