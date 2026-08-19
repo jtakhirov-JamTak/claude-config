@@ -106,3 +106,5 @@ If the Supabase MCP server or CLI is authenticated in this session, run the veri
 ## Note for migration authors
 
 The durable fix is to make every migration self-verifying: append a final `DO $$ BEGIN IF (select count(*) ... ) <> <N> THEN RAISE EXCEPTION '...'; END IF; END $$;` block so a partial paste _errors loudly_ instead of silently succeeding. Suggest adding this to the migration template if the project doesn't have it.
+
+The same fail-loud instinct applies going in, not just coming out — see **MIGRATION-PREFLIGHT** (`~/.claude/REVIEWER_CONVENTIONS.md` §6). When auditing a migration that adds a constraint, check it defends against the rows already present: conflicts named and raised rather than silently deleted, backfill before `NOT NULL`, a reused column's existing `CHECK` widened in the same file. A migration that passed locally and aborted on prod almost always failed one of those.

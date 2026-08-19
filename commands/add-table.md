@@ -1,6 +1,6 @@
 ---
 name: add-table
-description: Scaffold a new DB table + migration — owner FK/cascade, indexes, RLS policies, constraints (dedup CTE, >= on timestamps, backfill before NOT NULL/CHECK), data-classification comments, type regen. Use for adding ONE table.
+description: Scaffold a new DB table + migration — owner FK/cascade, indexes, RLS policies, constraints (fail-loud-or-explicit-survivor on UNIQUE, >= on timestamps, backfill before NOT NULL/CHECK, widen reused-column CHECKs), data-classification comments, type regen. Use for adding ONE table.
 ---
 
 Scaffold a new table + migration. Description: $ARGUMENTS
@@ -38,19 +38,44 @@ For sensitive columns, add a comment at column creation:
 
 ## Constraints
 
+Apply **MIGRATION-PREFLIGHT** (`~/.claude/REVIEWER_CONVENTIONS.md` §6) — every constraint below has to survive the rows already in the table, not just a clean local DB.
+
 - **Timestamp pairs**: `>=` not `>` on `CHECK (end_at >= start_at)`. Clock equality on first-write is a real case.
 - **`NOT NULL` on existing data**: backfill in the same migration before adding, OR add nullable, backfill, then alter in a follow-up.
-- **`CHECK` on existing data**: validate or remediate violators in the same migration.
-- **`UNIQUE` indexes**: prepend a dedup CTE — `CREATE UNIQUE INDEX IF NOT EXISTS` aborts the whole migration on the first duplicate.
+- **`CHECK` on existing data**: validate or remediate violators in the same migration. If the column is being **reused** for a new value, read its current constraint (`pg_get_constraintdef`) and widen it in the same migration — type-checking and unit tests cannot catch this, because neither performs a live insert.
+- **`UNIQUE` indexes**: `CREATE UNIQUE INDEX` aborts the whole migration on the first duplicate, so decide the resolution deliberately. Default to **failing loudly** — pre-flight `SELECT` the conflicting keys and abort naming them, so a human picks. Only dedup automatically when the survivor rule is explicit and written down (most-complete row, most recent activity); never emit a bare `DELETE … WHERE rn > 1` ordered by `id`, which discards production rows on an arbitrary rule nobody chose.
+
+Default — fail loudly, naming the conflicts:
 
 ```sql
+DO $$
+DECLARE dupe_groups int;
+BEGIN
+  SELECT count(*) INTO dupe_groups
+  FROM (SELECT user_id, name FROM things GROUP BY user_id, name HAVING count(*) > 1) d;
+
+  IF dupe_groups > 0 THEN
+    RAISE EXCEPTION
+      'things: % duplicate (user_id, name) group(s) block this unique index. Resolve them, then re-run.',
+      dupe_groups;
+  END IF;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS things_user_name_uq ON things (user_id, name);
+```
+
+Only if the survivor rule is a deliberate decision — state it in a comment, and order by the column that encodes it, never by `id`:
+
+```sql
+-- Survivor rule: keep the most recently updated row per (user_id, name).
+-- Agreed <date>; discards the older duplicates permanently.
 WITH ranked AS (
-  SELECT id, ROW_NUMBER() OVER (PARTITION BY user_id, name ORDER BY id) AS rn
+  SELECT id, ROW_NUMBER() OVER (
+    PARTITION BY user_id, name ORDER BY updated_at DESC, id DESC
+  ) AS rn
   FROM things
 )
 DELETE FROM things WHERE id IN (SELECT id FROM ranked WHERE rn > 1);
-
-CREATE UNIQUE INDEX IF NOT EXISTS things_user_name_uq ON things (user_id, name);
 ```
 
 - **Uniqueness on a table with `archived_at`**: if an archived row must not block reuse of its value, filter the index instead of adding a constraint — a plain `UNIQUE` keeps the name reserved forever and users read that as a bug.

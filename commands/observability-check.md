@@ -30,9 +30,11 @@ State the stage you judged against. The boundary with `/privacy-audit`: this ski
 
 ### Error sink
 
+Apply **ERROR-SINK-SCRUB** (`~/.claude/REVIEWER_CONVENTIONS.md` §6) — the scrubbing surfaces and the cooldown rule are maintained there; don't restate them.
+
 - Configured and receiving (DSN/endpoint set in the deploy target).
-- Per-request capture paths are **cooldown-latched** — a per-request `captureException` in a fallback/catch exhausts the quota during an outage and buries the one signal that mattered (module-level `lastCaptureAt` + N-min cooldown).
 - Severity/tagging lets you find the kind — a tag per failure mode, not one undifferentiated stream.
+- The three leak surfaces are actually covered, not just `beforeSend` on the exception: breadcrumbs filtered at capture time, transactions scrubbed via their own hook or sampling held at zero.
 
 ### Alerting
 

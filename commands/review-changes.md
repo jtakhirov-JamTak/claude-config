@@ -41,7 +41,7 @@ For each changed file:
 
 - Auth check present at the entry of every new authenticated route.
 - User-scoped queries filter by the authenticated principal id, not a client-provided value.
-- Origin / CSRF check on mutating routes AND on enumeration GETs.
+- Origin / CSRF check on mutating routes. Not on read GETs — see **READ-SURFACE-LIMITS** (`~/.claude/REVIEWER_CONVENTIONS.md` §6); there the checks are a per-day cap, an explicit `.limit()`, and the cookie `SameSite` / CORS config.
 - Rate limits cover both per-minute and per-day for any expensive or sensitive endpoint.
 - User text is delimited from instructions in AI prompts, not concatenated raw.
 - New env vars accessed without a runtime guard will crash at runtime, not build time — `process.env.X!` patterns need a startup check.

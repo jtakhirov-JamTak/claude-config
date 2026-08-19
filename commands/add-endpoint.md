@@ -19,8 +19,8 @@ Apply **DISCOVER-FIRST** (`~/.claude/REVIEWER_CONVENTIONS.md` §6) for the proje
 
 Same order, every time:
 
-1. **Origin / CSRF check** — covers mutating endpoints and enumeration GETs. For same-origin downloads where `Origin` is absent, accept `Sec-Fetch-Site: same-origin|none`.
-2. **Authentication** — extract the user from the server-side session. Never read `userId` from the request.
+1. **Origin / CSRF check** — **mutating endpoints only** (`POST`/`PATCH`/`PUT`/`DELETE`). Do not add it to read GETs: cross-site `fetch()` can't read the response without CORS, `SameSite=Lax` cookies aren't sent on those requests anyway, and the check 403s same-origin downloads where `Origin` is absent. Guard the read surface with cookie `SameSite` + a tight CORS allow-list instead — **READ-SURFACE-LIMITS** (`~/.claude/REVIEWER_CONVENTIONS.md` §6). Where a mutating flow legitimately arrives without `Origin`, accept `Sec-Fetch-Site: same-origin|none`.
+2. **Authentication** — extract the user from the server-side session. Never read `userId` from the request. If the route returns a redirect built from a client-supplied `next`/`returnTo`, apply **REDIRECT-VALIDATE** (§6).
 3. **Rate limit** — per-minute burst AND per-day cap. Per-day stops compromised sessions from scraping.
 4. **Schema validation** of the parsed body. 400 on failure with field-level errors (omit values).
 5. **Access gate** — see "Access gates" below.
@@ -45,9 +45,9 @@ The rule: **gating is a centralized helper, never inlined.** Drift between inlin
 
 ## Observability and PII
 
-- Catch and capture via the project's error sink. Latch per-request capture paths with a cooldown so a degraded upstream doesn't exhaust the quota.
+- Catch and capture via the project's error sink, applying **ERROR-SINK-SCRUB** (`~/.claude/REVIEWER_CONVENTIONS.md` §6): scrub `event.exception.values[*].value`, latch per-request captures behind a cooldown, and don't assume the sink's default config is safe.
 - Never log request body, AI prompts, or any user-text field.
-- Verify the sink scrubs `event.exception.values[*].value` — third-party SDK errors (Anthropic, OpenAI, Stripe) echo the request body in the error message.
+- SDK error messages are built from the **response** body, and that body carries data — a PostgREST conflict returns the offending column values inside `error.details`. Check what your providers actually put in `ex.value` by inspecting a real captured event; don't assume they echo the request.
 
 ## Deployment-time hazards (catch at scaffold)
 

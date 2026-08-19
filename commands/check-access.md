@@ -43,12 +43,13 @@ For each **mutating** route (`POST` / `PATCH` / `PUT` / `DELETE`):
 5. Access gate matched to the route's tier
 6. All DB queries filter by the _authenticated_ principal id, not a client-provided id
 
-For each **enumeration** GET that lists user-scoped data:
+For each **enumeration** GET that lists user-scoped data, apply **READ-SURFACE-LIMITS** (`~/.claude/REVIEWER_CONVENTIONS.md` §6):
 
-1. Origin check (with `Sec-Fetch-Site` fallback for same-origin downloads where `Origin` is absent)
-2. Auth helper called
-3. Per-day read cap applied (unbounded enumeration GETs are the leak path a compromised session will use)
+1. Auth helper called
+2. Per-day read cap applied (unbounded enumeration GETs are the leak path a compromised session will use)
+3. Explicit `.limit()` on every query — and check whether it exceeds the client's own row ceiling, which truncates silently rather than erroring
 4. All queries filter by the authenticated principal id
+5. Do **not** flag a missing origin/CSRF check here — it is not the control that guards reads, and it 403s same-origin downloads where `Origin` is absent. Audit the cookie `SameSite` attribute and the CORS allow-list instead; those are what actually bound cross-site reads.
 
 For each **server-rendered gated page**: the access gate is called exactly once, and that call lives in the page or its layout — not duplicated across both.
 
@@ -63,7 +64,9 @@ Flag any route that _is_ gated but shouldn't be — those break first-touch flow
 - Inlined gate logic anywhere (raw `if (!hasAccess) return 403` blocks scattered across routes instead of a single helper call) — every instance is a `HIGH` finding.
 - Two variants of the gate helper used for the same tier — drift waiting to happen.
 - Routes with auth but no rate limit, or rate limit but no per-day cap.
-- Routes where origin is checked on POST but not on a sibling enumeration GET.
+- Mutating routes missing the origin/CSRF check. (Its *absence on a read GET* is not a finding — see **READ-SURFACE-LIMITS**.)
+- A post-auth redirect parameter (`next`, `returnTo`, `redirectTo`) used without validation — apply **REDIRECT-VALIDATE** (`~/.claude/REVIEWER_CONVENTIONS.md` §6). Reject anything not starting `/`, anything starting `//`, and any backslash or control character.
+- Cookie `SameSite` set to `None`, or a CORS allow-list that reflects arbitrary origins with credentials — the two settings that actually expose the read surface.
 - Pages where the gate is duplicated in both the layout and the page (double-source-of-truth).
 
 ## Step 5 — Report

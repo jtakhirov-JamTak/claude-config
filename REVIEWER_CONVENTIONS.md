@@ -215,6 +215,45 @@ Apply through each domain's lens (same rule, different surface):
 
 Severity tracks what the unenforced invariant guards: money / auth / data-exposure → **HIGH/CRITICAL**; correctness / perf → **MEDIUM**. (`VERSION-GUARD` above is a specific instance of this rule — the version bump documented but not enforced symmetrically.)
 
+### ERROR-SINK-SCRUB — the error tracker's default configuration leaks user content
+
+An error sink (Sentry and equivalents) ships with a config that sends more than the stack trace to a third party. Three surfaces, in the order they get missed:
+
+- **`event.exception.values[*].value`.** SDK error messages are built from the HTTP *response* body, and that body routinely carries data. A PostgREST/Supabase conflict error returns `Key (user_id, name)=(…) already exists` — real column values, in the message. Scrub-spec tutorials cover `request.data` and `extra` and stop there. Redact every `ex.value` in a shared `scrubEvent`, or wrap at the capture site with a synthetic `new Error("short_tag")`. Do **not** assume a given SDK echoes your *request* body — verify against a real captured event before writing that into a project's rules.
+- **Breadcrumbs.** These do reach `beforeSend` as `event.breadcrumbs`, so scrubbing them there is possible — it just never happens, because the scrubber gets written against the exception and nobody revisits it. Use `beforeBreadcrumb` instead: it filters at capture time, before a console breadcrumb has stringified a raw error or a fetch breadcrumb has recorded a URL with a `?q=` search term in it. Configure it in the same change that enables the DSN, not after.
+- **Transactions/traces genuinely do bypass `beforeSend`** — they run through `beforeSendTransaction`. Traces carry full URL, query, and route metadata, and can't be scrubbed retroactively. `tracesSampleRate: 0` until a tracing consumer actually exists.
+
+Operational half: **latch any capture on a per-request path behind a cooldown.** A `captureException` inside a fallback catch that's hit on every request fires thousands of times a minute during an outage, exhausts the event quota, and the alert that would have named the outage never fires — observability failing exactly when it's needed. Module-level `Map<kind, lastCaptureAt>` with a 5-minute per-kind cooldown.
+
+Leaked user content at a third party can't be recalled → **HIGH**, or **CRITICAL** where the payload is sensitive personal content.
+
+### MIGRATION-PREFLIGHT — a structural migration must defend against the rows already there
+
+Local checks pass because they run against a clean or synthetic database. Production has history. Four forms:
+
+- **Unique index on a column that isn't unique yet.** `CREATE UNIQUE INDEX` aborts the whole migration on the first duplicate. Two acceptable resolutions, and the choice must be deliberate: (a) **fail loudly** — pre-flight `SELECT` the conflicting keys and abort with them named, so an operator decides; or (b) dedup with an **explicit, documented survivor rule** (most-complete row, most recent activity — not `ORDER BY id`, which silently keeps the oldest for no stated reason). A blind `DELETE … WHERE rn > 1` is destructive data loss chosen by accident; never emit one as the default.
+- **`NOT NULL` / new `CHECK` on an existing column.** Backfill first, in the same migration.
+- **A new value written into a *reused* column.** Check that column's existing CHECK constraint and widen it in the same migration (`drop constraint if exists` + re-add the superset). This one is uniquely nasty: type-checking and unit tests both pass, because they exercise the schema and the field mapping, never a live insert against the real constraint. The failure is a runtime 400, a cleanup path that deletes the raw row, and a generic "could not save" with nothing in the database. Read the live constraint (`pg_get_constraintdef` over `pg_constraint`) before shipping.
+- **Timestamp-pair CHECKs.** `end > start` rejects a first-submit user whose two timestamps land equal. Use `>=`, or guarantee separation at write time.
+
+### REDIRECT-VALIDATE — the post-auth return parameter is an open redirect
+
+Any app with a login-then-return-here flow carries a `?next=` / `?returnTo=`. Accept only a same-origin relative path:
+
+```
+/^\/(?!\/)/.test(next) && !/[\\\x00-\x1f\x7f]/.test(next)
+```
+
+The backslash clause is the half that gets skipped: `\` is folded to `/` for http(s) URLs, so `/\evil.com` becomes `//evil.com` and walks through a leading-slash-only check. Control chars belong in the same reject for header and log injection. Equivalent and equally sound: `new URL(next, origin).origin === origin`, which inherits the same `\`-folding from the URL parser — wrap it in try/catch, since it throws on malformed input. Applies to every server-returned redirect value handed to a client-side navigation. Credential phishing against your own users → **HIGH**.
+
+### READ-SURFACE-LIMITS — reads need caps, and the cookie/CORS config is what actually guards them
+
+Reviewers skip GET handlers on the assumption that reads are safe. Two real controls and one common false one:
+
+- **Per-day cap, not just per-minute.** 30 requests/minute reads as a reasonable limit and scrapes 43,200 records a day unnoticed. Any endpoint that enumerates user-scoped data needs a daily ceiling.
+- **Every user-scoped query needs an explicit `.limit()`** — and know which of two failure modes you're in. Without a limit the query degrades silently as rows accumulate: fine at 10, crawling at 1000. With a limit above the client's own ceiling you get the worse one: PostgREST caps responses at 1000 rows by default and **silently truncates**, so an export or enumeration returns a plausible-looking partial answer. Raise `db-max-rows` deliberately or surface a truncation notice when the count equals the cap.
+- **Do NOT add CSRF-style origin checks to read GETs.** They buy almost nothing and break real flows. A cross-site page's `fetch()` cannot read the response without CORS granting it, and `SameSite=Lax` — the browser default — doesn't send cookies on subresource requests, so the request arrives unauthenticated regardless. If the calling page is same-origin (XSS), an origin check is useless by definition. Meanwhile `Origin` is absent on same-origin navigations (`<a download>`, form submit, typed URL), so the check 403s every download button. The controls that actually guard the read surface are the cookie's `SameSite` attribute and a tight CORS allow-list — audit those two directly. (Origin checks remain correct and required on *mutating* endpoints — see the project's CSRF pattern.)
+
 ---
 
 ## 7. Maintaining this set
