@@ -28,15 +28,24 @@ Applies to every project unless a project-level CLAUDE.md says otherwise.
 
 ## Active projects
 
-| Path | What it is |
-|---|---|
-| `the-leaf-v2` | Leaf — the main product |
-| `dev\app-foundation` | Shared scaffolding / reference architecture |
-| `you-inc` | Scoring + pricing app |
-| `pure-eq` | Insights app |
-| `PurePath` | Habit / sprint app |
+| Path | What it is | State |
+|---|---|---|
+| `pure-eq` | Insights app | **Live — the only shipped app.** |
+| `the-leaf-v2` | Leaf — the main product | In build; MVP polish, first workshop April 2026 |
+| `dev\app-foundation` | Shared scaffolding / reference architecture | Reference only, never deployed |
+| `you-inc` | Scoring + pricing app | Early |
+| `PurePath` | Habit / sprint app | Early |
 
-All five are git repos pushed to `github.com/jtakhirov-JamTak`.
+All five are git repos pushed to `github.com/jtakhirov-JamTak`. Only `pure-eq` has
+users, so "is this safe to ship" means something different there than in the rest.
+
+## This directory is versioned
+
+`~/.claude` is itself a git repo (branch `master`) holding the authored skill set.
+The `.gitignore` denies everything at the root and re-includes only the authored
+files, so runtime state, transcripts, and `.credentials.json` can never be tracked.
+After changing a command, an agent, `REVIEWER_CONVENTIONS.md`, or this file, commit
+it — an uncommitted skill set is the one thing here with no backup.
 
 ## Custom commands
 
