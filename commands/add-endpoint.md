@@ -42,6 +42,7 @@ The rule: **gating is a centralized helper, never inlined.** Drift between inlin
 - **Raw before derived.** Insert raw first, then derived with AI/computed field `null`, then call the model, then UPDATE derived. Recoverable on model failure.
 - **Inspect `.error` on every DB call** — apply **DB-ERROR-CHECK** (`~/.claude/REVIEWER_CONVENTIONS.md` §6): `{ data, error }` returns don't throw on RLS/schema-drift/outage, and a `try/catch` won't catch them. Same for `Promise.all` over writes — collect results and inspect each.
 - **No fire-and-forget before a cache invalidation.** Await if a derived row must reflect the mutation.
+- **A cache/derived write paired with a live-compute read fallback** — apply **FALLBACK-MASKS-FAILURE** (`~/.claude/REVIEWER_CONVENTIONS.md` §6). The fallback keeps the page rendering while the write layer is dead; emit an operator signal on the write failure and make the fallback branch observable.
 
 ## Observability and PII
 

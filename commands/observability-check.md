@@ -26,6 +26,7 @@ State the stage you judged against. The boundary with `/privacy-audit`: this ski
 ### Critical-path instrumentation
 
 - Identify the paths that page you: auth, payment/entitlement webhook, AI-spend endpoints, DB writes on derived data. Each should emit a structured event (level, event name, correlation id, user id — never user content) on both success and failure.
+- Graceful degradation is instrumented, not merely implemented (§6 FALLBACK-MASKS-FAILURE): every read path that falls back to live compute records that it fired, so "cache warm" and "cache never populated" are distinguishable from the outside.
 - Failures are distinguishable: a `{ data, error }` branch that returns silently (§6 DB-ERROR-CHECK) is invisible to ops as well as to the user. Cross-reference — an uninspected `.error` is both a correctness bug and an observability hole.
 
 ### Error sink

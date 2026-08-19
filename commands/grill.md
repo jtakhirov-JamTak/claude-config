@@ -61,6 +61,7 @@ git diff
 ### 6. Persistence failure modes
 
 - DB call returns `{ data: null, error }` — is `.error` inspected? (**DB-ERROR-CHECK**, §6)
+- If that write silently failed, would anything notice? Follow the read path: a live-compute fallback renders the feature correctly forever while the cache stays empty (**FALLBACK-MASKS-FAILURE**, §6).
 - `Promise.all` over writes — is each result checked, or does one silent failure get hidden?
 - Cache delete succeeds, insert fails — does the user end up with an empty cache forever?
 - Fire-and-forget write inside a try/catch — does `.error` actually throw, or just sit in the return value?

@@ -34,6 +34,7 @@ For each changed file:
 - Logic errors: off-by-one, inverted conditions, wrong operator (`>` vs `>=` on timestamp comparisons is a recurring trap).
 - Null and empty: how does this behave on `null`, `""`, `[]`, `undefined`? Whitespace-only strings pass truthy checks — `.trim()` before `.length`.
 - Async: stale closures over state, missing `await`, unhandled rejection paths, double-fire under React strict mode or under retry.
+- A write that can fail silently sitting behind a read path that falls through to live compute: apply **FALLBACK-MASKS-FAILURE** (`~/.claude/REVIEWER_CONVENTIONS.md` §6) — the feature renders correctly while the cache layer is dead.
 - Error returns vs throws: apply **DB-ERROR-CHECK** (`~/.claude/REVIEWER_CONVENTIONS.md` §6) — `{ data, error }` calls don't throw on RLS/schema drift; every one needs `.error` inspection, and `Promise.all` over writes must collect + inspect each result.
 - Link/route integrity (mechanical): apply **LINK-RESOLVE** (§6) — every internal target the change adds or touches resolves to a page that exists on disk; a dangling target is a live 404 → HIGH. Don't eyeball it; resolve each one.
 
