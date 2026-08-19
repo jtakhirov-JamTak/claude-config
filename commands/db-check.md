@@ -1,11 +1,18 @@
 ---
 name: db-check
-description: Verify a migration ACTUALLY applied on the live DB — parse the migration's expected schema objects, generate one information_schema verification query with a hard count, and produce copy-paste remediation. Use after applying a migration on Supabase/Postgres, or when "column does not exist" errors hit production despite the migration "running".
+description: Verify a migration ACTUALLY applied on the live DB — parse the migration's expected schema objects, generate assertion + listing verification queries with a hard count, and produce copy-paste remediation. Use after applying a migration on Supabase/Postgres, or when "column does not exist" errors hit production despite the migration "running".
 ---
 
 Verify that a migration's schema changes actually landed on the target database. This exists because **idempotent `add column if not exists` blocks are silently skippable** — when SQL is pasted into a web editor and only part of it is highlighted-and-run, the skipped statements report no error and the migration looks "applied" while a column is missing. The symptom is a production write failing with `column ... does not exist` even though the migration file is in `main` and was "run twice."
 
 Argument (`$ARGUMENTS`): a migration file path, a migration number, or empty (defaults to the most recent migration on disk). May also name specific tables/columns to check directly.
+
+## Reviewer conventions (apply to this skill)
+
+- **Scope**: as above; default scope is the most recent migration on disk. State the resolved scope before emitting queries.
+- **Exceptions**: read `.claude/exceptions.md` at repo root; skip matching entries (a deliberately-unapplied migration is the common one); surface any suppressed entry at the end.
+- **Caps**: this skill reports a fixed expected-vs-found set, so caps rarely bind — but honor `top=N` if the migration creates a very large object list.
+- **Long-form rules**: `~/.claude/REVIEWER_CONVENTIONS.md`.
 
 ## Step 1 — Determine the expected schema objects
 
@@ -15,12 +22,12 @@ Argument (`$ARGUMENTS`): a migration file path, a migration number, or empty (de
   - `CREATE TABLE [IF NOT EXISTS] x ...` → expect table `x` + each column
   - `CREATE [UNIQUE] INDEX [IF NOT EXISTS] i ...` → expect index `i`
   - `CREATE POLICY p ON x ...` / `ENABLE ROW LEVEL SECURITY` → expect policy / RLS flag
-- **Ignore `comment on ...` statements** — comments aren't schema objects `information_schema` tracks as present/absent, and a missing comment is not a functional bug. Tell the user explicitly: "this checks the N columns/tables/indexes the migration creates, not the M comment statements." Comments that target *pre-existing* columns are doubly out of scope.
+- **Ignore `comment on ...` statements** — comments aren't schema objects `information_schema` tracks as present/absent, and a missing comment is not a functional bug. Tell the user explicitly: "this checks the N columns/tables/indexes the migration creates, not the M comment statements." Comments that target _pre-existing_ columns are doubly out of scope.
 - Build the **expected set** as an explicit list with a known total count. State the count out loud — it's the number the verification query must return.
 
 ## Step 2 — Generate the verification queries
 
-Emit TWO queries the user runs once each. The **assertion** query is primary — it returns a single PASS/FAIL row so the user never has to count by hand (manual counting is the exact error that the partial-paste incident turned on). The **listing** query shows *which* object is missing when the assertion fails.
+Emit TWO queries the user runs once each. The **assertion** query is primary — it returns a single PASS/FAIL row so the user never has to count by hand (manual counting is the exact error that the partial-paste incident turned on). The **listing** query shows _which_ object is missing when the assertion fails.
 
 Assertion (one row — read the `status` cell):
 
@@ -98,4 +105,4 @@ If the Supabase MCP server or CLI is authenticated in this session, run the veri
 
 ## Note for migration authors
 
-The durable fix is to make every migration self-verifying: append a final `DO $$ BEGIN IF (select count(*) ... ) <> <N> THEN RAISE EXCEPTION '...'; END IF; END $$;` block so a partial paste *errors loudly* instead of silently succeeding. Suggest adding this to the migration template if the project doesn't have it.
+The durable fix is to make every migration self-verifying: append a final `DO $$ BEGIN IF (select count(*) ... ) <> <N> THEN RAISE EXCEPTION '...'; END IF; END $$;` block so a partial paste _errors loudly_ instead of silently succeeding. Suggest adding this to the migration template if the project doesn't have it.

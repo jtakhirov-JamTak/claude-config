@@ -1,6 +1,6 @@
 ---
 name: deploy-check
-description: Deployment audit — `scope=delta` (default) for since-last-deploy risk review; `scope=full` for whole-repo launch readiness
+description: Deployment audit — `scope=delta` (default) for since-last-deploy risk review; `scope=full` for whole-repo launch readiness. Use as the ship gate, before and after rollout. NOT a review of uncommitted changes (use /full-review); NOT the periodic whole-repo health sweep (use /full-audit).
 ---
 
 Pre-deploy or pre-launch audit. Argument-driven scope:
@@ -21,13 +21,15 @@ Pre-deploy or pre-launch audit. Argument-driven scope:
 
 # Verification (always — both scopes)
 
-Run the `verify-app` agent (type check → lint → unit tests → production build, stop-on-first-failure, max 2 fix attempts per step, explicit ran-vs-skipped report). For a final pre-deploy pass, tell it to build from a clean state — clear `.next`/`dist`/`.turbo` first. If it returns FAIL, **stop and do not deploy.** Don't re-implement the sequence here; the agent owns it.
+Apply **VERIFY-GATE** (`~/.claude/REVIEWER_CONVENTIONS.md` §6) — discover the gate from `package.json`, never assume a script name. For a final pre-deploy pass, build from a **clean state**: clear `.next`/`dist`/`.turbo` first. Report each step as ran / skipped / failed. If any step fails, **stop and do not deploy.**
+
+A repo with no single verify script is not a pass — it's a gap. Note it once in the report (`RISK`: no single local verification gate; consider adding a `verify` script) and continue with the discovered sequence.
 
 ---
 
 # `scope=delta` — since-last-deploy risk review
 
-The job: surface what's *risky about this specific deploy*. Not a re-audit of the whole app.
+The job: surface what's _risky about this specific deploy_. Not a re-audit of the whole app.
 
 ## Find the last deploy
 
@@ -45,6 +47,7 @@ git diff <base>..HEAD
 ## Migration risk
 
 For every migration added since last deploy:
+
 - Idempotent? Re-running on an already-migrated DB should be safe.
 - Dedup CTE before any new UNIQUE index?
 - Backfill before any new NOT NULL or CHECK?
@@ -70,6 +73,7 @@ Flag any migration not yet applied to the deploy target. Confirm explicitly befo
 ## Behavioural surface
 
 For each non-trivial change since last deploy:
+
 - Rollback plan: revert cleanly, or does it depend on a non-revertible migration?
 - User-visible behaviour change on the first request after deploy.
 - Cached/derived rows from the old shape rendering incorrectly under new code? Symmetric `generator_version` guards on reader and writer prevent this; verify they exist.
@@ -85,11 +89,13 @@ For each non-trivial change since last deploy:
 ## Output (delta mode)
 
 Severity-ranked, scoped to this deploy:
+
 - `BLOCKER` — must fix before deploy (verification failure, unapplied migration, env var missing, secret in diff)
 - `RISK` — could fix or could go with a watch (large surface change, new sub-processor, new error path with per-request capture)
 - `WATCH` — note for post-deploy monitoring
 
 End with:
+
 - `READY TO DEPLOY` — no BLOCKERs
 - `NOT READY` — list BLOCKERs
 - Suggested post-deploy watch list (what to monitor for the first 30 minutes after rollout)
@@ -103,6 +109,7 @@ The job: audit the whole app for launch readiness across security, privacy, UX, 
 ## Discover the stack
 
 Identify before checking categories:
+
 - Web framework, server runtime, hosting target
 - DB and its auth/authz model
 - Auth provider (managed service vs hand-rolled)
@@ -115,6 +122,7 @@ Don't grep for `bcrypt` if the project uses managed auth; don't assume `index.ht
 ## Security, privacy, mobile, a11y, perf, observability, deps — delegate, don't re-audit
 
 Run the dedicated audits and fold their findings into this report by severity:
+
 - Access / auth / rate-limit / origin / user-id filtering / RLS → `/check-access`
 - PII flows, deletion cascade, export, sub-processor list, error-sink scrubbing → `/privacy-audit`
 - Touch targets, contrast, input font-size, soft-keyboard, PWA manifest → `/mobile-check` (user-facing pages)
@@ -155,7 +163,7 @@ If the app charges money, the payment path is the highest-risk surface — audit
 - **Webhook signature verification** on every payment webhook, with the raw (unparsed) body — most SDKs require the raw bytes to verify. Reject unsigned/invalid.
 - **Idempotent entitlement writes.** Providers retry webhooks; the same event delivered twice must not double-grant, double-charge-credit, or flip state twice. Dedup on the provider's event id.
 - **No half-upgraded state.** A failed/abandoned checkout leaves the user exactly as before — no `active` row written on a payment that didn't clear.
-- **Downgrade paths exist and are correct:** cancellation, failed renewal (dunning), refund/chargeback all move the user back to the un-entitled state. Cancelled→active requires a *new* checkout, not a re-POST.
+- **Downgrade paths exist and are correct:** cancellation, failed renewal (dunning), refund/chargeback all move the user back to the un-entitled state. Cancelled→active requires a _new_ checkout, not a re-POST.
 - **Free-window / trial anchor** can't be reset by the user to farm another free period (the anchor column is server-write-only).
 - **Kill switch:** can you halt new subscriptions without a redeploy?
 
@@ -174,11 +182,12 @@ Pre-launch projects rarely have these and find out at 2am.
 - DB migrations all applied to deploy target — flag any unpushed.
 - Production-grade email sender configured (not the auth provider's default-capped relay).
 - Error sink quota and alerting configured. Per-error-kind cooldown latching in code paths that can fail per-request.
-- **CI fast-signal gate:** if the project commits to main with auto-deploy and has no push-triggered typecheck/lint/build check, recommend `/ci-check` — moving that signal ahead of the deploy build (and adding lint the build may skip) is low-effort. Note it's a recommendation, not a BLOCKER: the deploy provider already fails on a broken build. Test-suite gating stays deferred until a suite exists.
+- **CI fast-signal gate:** if the project commits to main with auto-deploy and has no push-triggered typecheck/lint/build check, recommend `/ci-check` — moving that signal ahead of the deploy build (and adding lint the build may skip) is low-effort. Note it's a recommendation, not a BLOCKER: the deploy provider already fails on a broken build. Template-derived apps ship with a green suite and gate tests from day one; only legacy repos without a suite defer test-gating.
 
 ## Output (full mode)
 
 Severity-ranked:
+
 - `CRITICAL` — ship blocker (privacy leak, paywall bypass, unauthenticated access)
 - `IMPORTANT` — should fix before launch
 - `NICE-TO-HAVE` — track, don't block
@@ -186,6 +195,7 @@ Severity-ranked:
 For each finding: category, file/area, one-line "what could go wrong", suggested next action.
 
 End with:
+
 - Counts by severity.
 - Single highest-leverage fix.
 - Longest-lead-time fix (so the user starts it now).
@@ -194,9 +204,10 @@ End with:
 
 # Post-deploy smoke (run AFTER rollout, both modes)
 
-The audit above runs *before* you ship. This runs *after* — a pre-deploy pass that's green tells you nothing about whether prod is actually serving. Do not declare a deploy successful until these pass against the live target.
+The audit above runs _before_ you ship. This runs _after_ — a pre-deploy pass that's green tells you nothing about whether prod is actually serving. Do not declare a deploy successful until these pass against the live target.
 
 Propose the smoke list (don't blindly hit prod — confirm the target and that it's safe):
+
 - **Liveness:** the app's health/root route returns 200 (not a 500 page, not a stale cached build).
 - **One authed read:** a logged-in user can load a core page that does a real DB read — proves auth + DB + RLS survived the deploy.
 - **One critical write path** (use a test account, not a real user): the primary action completes end-to-end. For a paid app, the checkout→entitlement path is the one to verify.

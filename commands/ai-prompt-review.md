@@ -15,6 +15,7 @@ Audit changes to the AI prompt / output-schema / model-config surface. This is t
 ## Step 0 — Discover the AI surface
 
 Find, before judging:
+
 - Where prompts are built (`prompts.ts`, `ai/prompts`, prompt-builder functions).
 - Where AI output is validated (`ai/schemas`, the Zod/validator layer for model responses — distinct from request schemas).
 - The version constants: a code-side `PROMPT_VERSION`-style string AND the DB-side `ai_*_version` / `generator_version` columns the derived rows stamp.
@@ -54,6 +55,7 @@ Apply **VERSION-GUARD** (`~/.claude/REVIEWER_CONVENTIONS.md` §6): if this chang
 ## Output
 
 Severity-ranked, `file:line — finding — what would go wrong — suggested direction`:
+
 - `CRITICAL` — prompt injection path (undelimited user text), unverified quote served, free-form prose as primary output with no schema.
 - `HIGH` — output-shape change with no version bump (VERSION-GUARD), banned-phrase walker missing nested fields, missing `.trim().min(1)` or `.max()` on an output string, pinned-model config silently changed.
 - `MEDIUM` — cap without prompt guidance (or vice versa), collected-but-unused field, missing cost gate on a new expensive call.

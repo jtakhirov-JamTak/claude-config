@@ -1,6 +1,6 @@
 ---
 name: worktree
-description: Create a git worktree for parallel work, with the env files and untracked dev state copied across
+description: Create a git worktree for parallel work, with the env files and untracked dev state copied across. Use to start a second branch in parallel without disturbing the current tree. NOT committing or pushing (use /commit).
 ---
 
 Create a git worktree so you can work on a feature in parallel without disturbing the current branch. Worktree name: $ARGUMENTS
@@ -48,6 +48,7 @@ Recommend (don't run unless the user asks) the install command for the project (
 ## Step 6 — Confirm
 
 Report:
+
 - New worktree path
 - New branch name
 - Env files copied (list each)

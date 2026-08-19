@@ -7,7 +7,7 @@ Scaffold a new API endpoint. Description: $ARGUMENTS
 
 ## Discover first
 
-Read `package.json`, then grep for the project's helpers — validation/schemas, auth (`getAuthUser`/`requireUser`/`getServerSession`), origin/CSRF (`checkOrigin`), rate-limit, access gate (`requirePaidAccess`/`requireAccess`/`checkSubscription`), idempotency, generated DB types. **Read one nearby sibling endpoint end-to-end — that's your template.** Match its shape unless there's a deliberate reason not to.
+Apply **DISCOVER-FIRST** (`~/.claude/REVIEWER_CONVENTIONS.md` §6) for the project-wide helper map, then narrow to this layer: validation/schemas, auth (`getAuthUser`/`requireUser`/`getServerSession`), origin/CSRF (`checkOrigin`), rate-limit, access gate (`requirePaidAccess`/`requireAccess`/`checkSubscription`), idempotency, generated DB types. **Read one nearby sibling endpoint end-to-end — that's your template.**
 
 ## Schemas
 
@@ -35,12 +35,7 @@ The rule: **gating is a centralized helper, never inlined.** Drift between inlin
 - Match the helper to the feature's tier — paid-only vs free-window vs no-gate. Don't paste a paid-only gate on a free-tier feature.
 - If you find inlined checks instead of a helper, that's an architectural finding — propose creating the helper before continuing.
 
-**Routes that must NOT be gated:**
-- Auth callback / session refresh
-- The endpoint that *creates* the subscription
-- Onboarding writes that run before the user can pay
-- Webhook receivers (use signature verification instead)
-- Admin routes (use the admin helper, not the paid gate)
+**Routes that must NOT be gated** — apply **GATE-EXCLUSIONS** (`~/.claude/REVIEWER_CONVENTIONS.md` §6): auth callback / session refresh, the endpoint that _creates_ the subscription, onboarding writes that run before the user can pay, webhook receivers (signature verification instead), admin routes (admin helper, not the paid gate). Emitting a gate on any of these is a scaffolding bug, not a judgement call.
 
 ## Data-write patterns
 

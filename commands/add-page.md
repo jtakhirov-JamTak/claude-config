@@ -7,7 +7,7 @@ Scaffold a new page. Description: $ARGUMENTS
 
 ## Discover first
 
-Read `package.json`, confirm the framework + router, and **read one nearby sibling page end-to-end — that's your template.** Note the project's server-vs-client-component default, data-fetching convention (server actions / `loader` / hooks), styling system, and shared layout primitives (top bar, bottom tab bar, auth gate).
+Apply **DISCOVER-FIRST** (`~/.claude/REVIEWER_CONVENTIONS.md` §6), then narrow to this layer: the framework + router, the project's server-vs-client-component default, its data-fetching convention (server actions / `loader` / hooks), the styling system, and shared layout primitives (top bar, bottom tab bar, auth gate). **Read one nearby sibling page end-to-end — that's your template.**
 
 ## Pick the location
 
@@ -22,13 +22,9 @@ Match the existing pattern: server vs client component default, data-fetching co
 
 ## Mobile-first defaults (non-negotiable)
 
-- **Input font-size ≥ 16px** (iOS zooms on focus below 16px).
-- **Tap targets ≥ 44pt iOS / 48dp Android.** Wrap native checkboxes in `<label>` with `min-h-11`.
-- **Reserve space for fixed bottom bars** — hub/list pages need bottom padding so the last card isn't covered.
-- **Contrast meets WCAG AA** — ≥ 4.5:1 body, ≥ 3:1 large/decorative. Default mid-grey utilities (`text-zinc-400`, `text-gray-400`) fail AA at small sizes.
-- **Horizontal padding ≥ 16px** from viewport edges.
+Apply **MOBILE-FLOOR** (`~/.claude/REVIEWER_CONVENTIONS.md` §6): input font-size ≥ 16px, tap targets ≥ 44pt/48dp, contrast ≥ 4.5:1 body and ≥ 3:1 large, ≥ 16px horizontal padding, and bottom space reserved for any fixed tab bar. The numbers are maintained there and audited by `/mobile-check` — don't restate them here.
 
-If the project's existing pages violate these, match the rules, not the siblings. For a deeper pass run `/mobile-check` on the new page.
+If the project's existing pages violate the floor, match the floor, not the siblings. For a deeper pass run `/mobile-check` on the new page.
 
 ## Multi-step / wizard pages
 

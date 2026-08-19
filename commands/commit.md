@@ -1,11 +1,12 @@
 ---
 name: commit
-description: Stage specific files and commit locally — pass `--push` to also push — never `git add -A`
+description: Stage specific files and commit locally — pass `--push` to also push — never `git add -A`. Use when committing finished work. NOT a review before committing (use /review-changes or /full-review); NOT the pre-deploy gate (use /deploy-check).
 ---
 
 Stage and commit changes. Default: commit only, no push. Pass `--push` (or `push`) in `$ARGUMENTS` to also push to the remote. Optional message hint can come as a separate arg.
 
 Examples:
+
 - `/commit` — stage + commit, no push
 - `/commit --push` — stage + commit + push
 - `/commit fix paywall race` — stage + commit with message hint, no push
@@ -37,13 +38,13 @@ After staging, before committing:
 git diff --cached --stat
 ```
 
-Show the user what's about to be committed. If anything was *withheld* (sensitive pattern matched, large file, build artefact), state it explicitly — never silently drop a file.
+Show the user what's about to be committed. If anything was _withheld_ (sensitive pattern matched, large file, build artefact), state it explicitly — never silently drop a file.
 
 ## Step 4 — Write the message
 
 - Subject ~50 chars, hard cap ~70, no trailing period.
 - Match the project's prefix convention if there is one (`fix:`, `feat:`, `chore:`, numbered like `fix2:`).
-- Body only if the *why* isn't obvious. Diff shows the *what*; the message captures the *why*.
+- Body only if the _why_ isn't obvious. Diff shows the _what_; the message captures the _why_.
 - No marketing voice ("successfully", "comprehensive", "robust").
 - Co-author trailer: ALWAYS end the message with the exact `Co-Authored-By:` trailer your current harness / system prompt mandates, verbatim, regardless of whether recent commits include one. Do not hardcode a model name in this file — the mandated string changes across versions and a pinned literal silently goes stale; read it from the current harness instructions each time.
 
@@ -64,6 +65,18 @@ git commit -m @'
 <body line 1>
 <body line 2>
 '@
+```
+
+Bash tool equivalent:
+
+```
+git commit -m "$(cat <<'EOF'
+<subject>
+
+<body line 1>
+<body line 2>
+EOF
+)"
 ```
 
 Don't skip hooks (`--no-verify`). If a pre-commit hook fails, the commit didn't happen — fix the underlying issue and create a new commit. Never `--amend` on hook failure.

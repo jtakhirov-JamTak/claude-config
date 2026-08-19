@@ -24,19 +24,23 @@ State the stage you judged against. The boundary with `/privacy-audit`: this ski
 ## What to check
 
 ### Critical-path instrumentation
+
 - Identify the paths that page you: auth, payment/entitlement webhook, AI-spend endpoints, DB writes on derived data. Each should emit a structured event (level, event name, correlation id, user id — never user content) on both success and failure.
 - Failures are distinguishable: a `{ data, error }` branch that returns silently (§6 DB-ERROR-CHECK) is invisible to ops as well as to the user. Cross-reference — an uninspected `.error` is both a correctness bug and an observability hole.
 
 ### Error sink
+
 - Configured and receiving (DSN/endpoint set in the deploy target).
 - Per-request capture paths are **cooldown-latched** — a per-request `captureException` in a fallback/catch exhausts the quota during an outage and buries the one signal that mattered (module-level `lastCaptureAt` + N-min cooldown).
 - Severity/tagging lets you find the kind — a tag per failure mode, not one undifferentiated stream.
 
 ### Alerting
+
 - An alert exists for: auth failure spike, payment/entitlement write failure, AI-spend anomaly (cost runaway), DB error rate, and the error-sink-is-silent case (no events ≠ healthy; could be a broken sink).
 - Alert routes somewhere a human sees within the window that matters. Note alert-fatigue risk: too many low-signal alerts and the real one gets muted.
 
 ### Scaling stage only
+
 - Metrics on hot paths (RED: rate/errors/duration). Traces spanning the slow multi-hop calls. A dashboard for the critical user journey. SLOs with an error budget that someone owns.
 
 ## Output
@@ -44,6 +48,7 @@ State the stage you judged against. The boundary with `/privacy-audit`: this ski
 For each gap: `path / area — what you'd be blind to — stage it's required at — suggested instrumentation`.
 
 Priority:
+
 - `must have` (for the stated stage) — a critical path with no signal on failure; an uncooldowned per-request capture; no alert on money/auth failure.
 - `should have` — partial instrumentation; missing tag granularity; no silent-sink alert.
 - `later` — scaling-stage items when pre-launch.

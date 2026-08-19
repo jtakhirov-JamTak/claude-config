@@ -17,25 +17,24 @@ Audit one or more pages for mobile-first UX issues.
 - Confirm the framework (React/Svelte/Vue/etc.) and the styling system (Tailwind, CSS Modules, styled-components, vanilla CSS). Class names and audit techniques differ.
 - Note any project-wide layout primitives (top bar, bottom tab bar, safe-area handling). If a bottom tab bar exists, every hub/list/scroll page must reserve space for it.
 
+## The floor, then the rest
+
+Start from **MOBILE-FLOOR** (`~/.claude/REVIEWER_CONVENTIONS.md` §6) — input font-size ≥ 16px, tap targets ≥ 44pt/48dp (checkbox rows wrapped in a `<label>` with `min-h-11`), contrast ≥ 4.5:1 body and ≥ 3:1 large, ≥ 16px horizontal padding, bottom space reserved for a fixed tab bar. Those five are the baseline this skill enforces; **when a number changes, change it in §6**, not here. Everything below is the device audit the floor doesn't cover.
+
 ## Layout
 
 - Nothing scrolls horizontally at a 375px viewport. Common culprits: fixed widths, oversized `min-width`, `whitespace-nowrap` on long strings, tables.
-- ≥ 16px of horizontal padding inside the viewport edges.
 - Content stacks at narrow widths; no two-column layout below ~640px without a fallback.
-- Bottom-padding reserves space for any fixed tab bar — otherwise the last card sits behind the bar and is partially tappable, partially not.
 
-## Touch targets
+## Touch targets — beyond the floor
 
-- Every interactive element (button, link, checkbox, radio, toggle, icon button) is ≥ 44pt (iOS) / 48dp (Android) on its tappable axis.
-- Native `<input type="checkbox">` is ~16px — too small. Wrap the row in a `<label>` with `min-h-11` (or equivalent) and a pointer cursor so the entire row is the tap target.
 - Subtle text links (`text-xs underline`, footer "edit"/"reset" links) need an inflated tap target via padding even when the visual size stays small.
 - ≥ 8px gap between adjacent tappable elements so a thumb doesn't hit both.
 
-## Typography and contrast
+## Typography — beyond the floor
 
-- Body / input font-size ≥ 16px. iOS Safari zooms on focus when input font-size < 16px — silently breaks every form.
-- Text vs background meets WCAG AA: ≥ 4.5:1 for body, ≥ 3:1 for large/decorative text. The default mid-grey utility classes (`text-zinc-400`, `text-gray-400`, `#9CA3AF`-ish) fail AA at small sizes — go one or two shades darker.
 - Headings sized for narrow screens — a 48px heading wraps awkwardly at 375px.
+- Cite the failing colour pair when contrast fails; the mid-grey utilities (`text-zinc-400`, `text-gray-400`, `#9CA3AF`-ish) are the usual offenders.
 
 ## Inputs and keyboard
 
@@ -69,6 +68,7 @@ Audit one or more pages for mobile-first UX issues.
 For each issue: `file (or component) — what's wrong in plain English — what to change — priority`.
 
 Priority:
+
 - `must fix` — silently breaks input, blocks tap, fails contrast
 - `should fix` — degrades feel
 - `nice to have` — polish

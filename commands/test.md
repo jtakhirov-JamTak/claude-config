@@ -1,11 +1,18 @@
 ---
 name: test
-description: Author or audit tests with risk-based judgment — pick what deserves a test by observable failure mode, write to the project's conventions, or surface undertested high-risk surfaces (auth, money, derived data, migrations, regressions). Modes — write | audit. NOT running the suite (use the verify-app agent / built-in /verify); NOT diagnosing a failing test's bug (use /fix-bug); NOT coverage-% chasing.
+description: Author or audit tests with risk-based judgment — pick what deserves a test by observable failure mode, write to the project's conventions, or surface undertested high-risk surfaces (auth, money, derived data, migrations, regressions). Modes — write | audit. NOT running the suite (use the project's verify script); NOT diagnosing a failing test's bug (use /fix-bug); NOT coverage-% chasing.
 ---
 
 Author or audit tests. Mode and target: $ARGUMENTS
 
 Default mode is `write` if given a module/diff/symbol; `audit` if asked "where are we undertested" or given a wide scope. State which mode you're in.
+
+## Reviewer conventions (`audit` mode only — `write` mode produces code, not a ranked report)
+
+- **Scope**: `$ARGUMENTS` may name a module / dir / glob / symbol; default `audit` scope is the whole repo's risk surfaces.
+- **Exceptions**: read `.claude/exceptions.md` at repo root before reporting; skip matching entries; surface any suppressed gap at the end.
+- **Caps**: honor `top=N`, `critical-only`, `high-only`, `unbounded` in `$ARGUMENTS`. Default: list every uncovered money/auth surface individually; cap the rest at 10.
+- **Long-form rules**: `~/.claude/REVIEWER_CONVENTIONS.md`.
 
 ## Discover first
 
@@ -26,7 +33,7 @@ Do **not** test: framework behaviour, getters with no logic, code with no failur
 ## Mode: `write`
 
 1. State, in one line each, the failure modes worth a test for this target (from the ranking above).
-2. For each: arrange (realistic fixtures, the project's auth/DB setup helper), act, assert the *behaviour* — not the implementation detail that will churn.
+2. For each: arrange (realistic fixtures, the project's auth/DB setup helper), act, assert the _behaviour_ — not the implementation detail that will churn.
 3. Cover the boundaries `/grill` would attack: empty/whitespace, at-limit, null vs `""`, double-submit/replay, the `{ data, error }` error branch, the gated-403 path.
 4. Match the sibling's structure exactly. Run the new tests; they must pass (or fail for the right reason if writing a red regression test first).
 
@@ -41,4 +48,4 @@ Do **not** test: framework behaviour, getters with no logic, code with no failur
 - `write`: the test files/blocks, the failure modes each one locks, and a one-line "what was deliberately not tested and why".
 - `audit`: a risk-ranked gap table (surface / covered? / blast radius / one-line "what breaks silently if untested"), then the single highest-leverage test to write first.
 
-Do not run the full suite as the deliverable — that's the verify-app agent. This skill's job is the tests' *existence and aim*, not their green checkmark.
+Do not run the full suite as the deliverable — that's the project's verification gate (**VERIFY-GATE**, `~/.claude/REVIEWER_CONVENTIONS.md` §6). This skill's job is the tests' _existence and aim_, not their green checkmark.

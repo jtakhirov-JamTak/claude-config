@@ -14,7 +14,7 @@ Audit accessibility against WCAG 2.2 AA. Output is a severity-ranked report keye
 
 ## Discover first
 
-Confirm the framework and component library (a UI kit may handle focus/ARIA for you — or may not). Note whether the app is mobile-first PWA: same DOM serves AT users on desktop and mobile, so a keyboard/SR gap ships to everyone. The boundary with `/mobile-check`: that skill owns the *device* (touch, viewport, soft-keyboard occlusion, install); this skill owns *assistive technology* (screen reader, physical keyboard, semantics). Contrast is shared — report it here in WCAG terms, there in mobile-legibility terms.
+Confirm the framework and component library (a UI kit may handle focus/ARIA for you — or may not). Note whether the app is mobile-first PWA: same DOM serves AT users on desktop and mobile, so a keyboard/SR gap ships to everyone. The boundary with `/mobile-check`: that skill owns the _device_ (touch, viewport, soft-keyboard occlusion, install); this skill owns _assistive technology_ (screen reader, physical keyboard, semantics). Contrast is shared — report it here in WCAG terms, there in mobile-legibility terms.
 
 ## Perceivable
 
@@ -27,7 +27,7 @@ Confirm the framework and component library (a UI kit may handle focus/ARIA for 
 
 - **Keyboard** (2.1.1/2.1.2): every interactive element reachable and operable by keyboard; no focus traps; custom widgets (menus, dialogs, comboboxes) implement the expected key handling.
 - **Focus order & visible focus** (2.4.3/2.4.7): tab order follows reading order; focus is always visible (no `outline: none` without a replacement); on dialog open, focus moves in and is restored on close.
-- **Target size** (2.5.8, AA): pointer targets ≥ 24×24 CSS px (the WCAG AA floor — note this is *below* the 44/48 mobile guideline `/mobile-check` enforces; cite both bars where relevant, don't duplicate the finding).
+- **Target size** (2.5.8, AA): pointer targets ≥ 24×24 CSS px (the WCAG AA floor — note this is _below_ the 44/48 mobile guideline `/mobile-check` enforces; cite both bars where relevant, don't duplicate the finding).
 - **Bypass blocks** (2.4.1): a skip-link or landmark structure to bypass repeated nav.
 
 ## Understandable
@@ -46,6 +46,7 @@ Confirm the framework and component library (a UI kit may handle focus/ARIA for 
 For each issue: `file / component — WCAG SC — what an AT user experiences — what to change — priority`.
 
 Priority:
+
 - `must fix` — blocks an AT user from completing a task (no keyboard path, unlabelled critical control, trap).
 - `should fix` — degrades but doesn't block (poor focus order, missing live-region on a non-critical status).
 - `minor` — polish.

@@ -7,7 +7,7 @@ Scaffold a new table + migration. Description: $ARGUMENTS
 
 ## Discover first
 
-Find the migration tool (`supabase/migrations/`, `prisma/`, `drizzle/`, flyway, dbmate), the generated-types target (`types/database.ts`, `db/schema.ts`), and the authorization model (RLS policies vs app-level). **Read one nearby existing migration end-to-end — that's your template.**
+Apply **DISCOVER-FIRST** (`~/.claude/REVIEWER_CONVENTIONS.md` §6), then narrow to this layer: the migration tool (`supabase/migrations/`, `prisma/`, `drizzle/`, flyway, dbmate), the generated-types target (`types/database.ts`, `db/schema.ts`), and the authorization model (RLS policies vs app-level). **Read one nearby existing migration end-to-end — that's your template.**
 
 ## Define the table
 
@@ -15,18 +15,22 @@ Required columns on any user-scoped table:
 
 - **Owner FK** — `user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE` (or the project's equivalent). Without cascade, account deletion leaves orphans.
 - **`created_at`** — `TIMESTAMPTZ NOT NULL DEFAULT now()`.
-- **`updated_at`** — only if rows mutate after insert.
+- **`updated_at`** — `TIMESTAMPTZ NOT NULL DEFAULT now()`, kept current by the canonical trigger, not by application code: `CREATE TRIGGER <table>_set_updated_at BEFORE UPDATE ON public.<table> FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();` (foundation standard: include it; rows almost always mutate eventually). Confirm `public.set_updated_at()` already exists in an earlier migration — a fresh-DB apply fails if the trigger runs before the function is defined.
+- **`archived_at`** — `TIMESTAMPTZ` nullable, for soft delete. Include it whenever archive or delete semantics exist for the entity — for user-facing domain tables that is usually yes (foundation standard: archive rather than delete when history has value). It is a deliberate per-table decision, not free: **if `archived_at` exists, every list query, every RLS SELECT policy, and every export/deletion walk must filter on it** — otherwise archived rows leak into lists, or survive an account-deletion request. State the choice in the migration comment.
 - **Indexes** — on every filterable / sortable column. At minimum the owner FK. `(user_id, created_at DESC)` is common.
 
 If the table stores a computed snapshot:
+
 - **`generator_version`** — text or int stamped by the code version that produced the snapshot. Readers filter on it; writers stamp it. Bumping invalidates stale rows without a migration.
 
 If the table has a state machine (`open`/`resolved`/`archived`):
+
 - The status column should not be user-writable through the gateway path. Transitions go through dedicated mutation endpoints.
 
 ## Data classification
 
 For sensitive columns, add a comment at column creation:
+
 - `email TEXT NOT NULL, -- PII: email`
 - `journal_text TEXT, -- SENSITIVE: journal content`
 
@@ -47,6 +51,14 @@ WITH ranked AS (
 DELETE FROM things WHERE id IN (SELECT id FROM ranked WHERE rn > 1);
 
 CREATE UNIQUE INDEX IF NOT EXISTS things_user_name_uq ON things (user_id, name);
+```
+
+- **Uniqueness on a table with `archived_at`**: if an archived row must not block reuse of its value, filter the index instead of adding a constraint — a plain `UNIQUE` keeps the name reserved forever and users read that as a bug.
+
+```sql
+CREATE UNIQUE INDEX IF NOT EXISTS things_user_name_active_uq
+  ON things (user_id, lower(name))
+  WHERE archived_at IS NULL;
 ```
 
 ## Row-level authorization

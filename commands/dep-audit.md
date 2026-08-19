@@ -39,6 +39,7 @@ Identify the package manager and lockfile (`package-lock.json`, `pnpm-lock.yaml`
 ## New-dependency provenance (when vetting a specific add)
 
 Before adding a package, sanity-check it's not a supply-chain trap:
+
 - **Typosquat**: name is a near-miss of a popular package; check you mean the real one.
 - **Provenance**: download counts, repo linked and matches, recent releases, more than one maintainer or a known org.
 - **Footprint**: does it pull a large transitive tree or run install scripts? A one-function need doesn't justify a 40-dep subtree.
@@ -47,6 +48,7 @@ Before adding a package, sanity-check it's not a supply-chain trap:
 ## Output
 
 Risk-ranked, `package@version — risk type — severity — reachable? — suggested action (bump within major / plan major / replace / accept)`:
+
 - `CRITICAL` — known-exploited vuln on a reachable path; AGPL on a commercial product; confirmed typosquat.
 - `HIGH` — high-severity vuln reachable; unmaintained dep on a critical path; lockfile not reproducible.
 - `MEDIUM` — outdated major with breaking changes pending; dev-only vuln; large-footprint dep for a small need.

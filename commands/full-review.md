@@ -1,6 +1,6 @@
 ---
 name: full-review
-description: Run the full review pipeline on uncommitted changes — verification, adversarial, security, architecture, performance/mobile/accessibility/privacy (each when relevant) — and offer to fix
+description: Run the full review pipeline on uncommitted changes — verification, adversarial, security, architecture, performance/mobile/accessibility/privacy (each when relevant) — and offer to fix. Use before committing a substantial diff. NOT a whole-repo sweep on a clean tree (use /full-audit); NOT the ship gate (use /deploy-check); NOT a single quick diff pass (use /review-changes).
 ---
 
 Run the full review pipeline on uncommitted changes. Each step is conditional — skip categories that don't apply to this diff. Stop the pipeline on any verification failure; reviewing code that doesn't compile is wasted work.
@@ -9,7 +9,7 @@ Run the full review pipeline on uncommitted changes. Each step is conditional �
 
 - **Scope**: `$ARGUMENTS` may name a file / dir / glob to scope the entire pipeline; default scope is uncommitted changes. The scope propagates to every sub-step.
 - **Exceptions**: each sub-step reads `.claude/exceptions.md`; the consolidated report at the end surfaces total suppressed across all steps and lists any suppressed CRITICAL once.
-- **Caps**: honor `top=N`, `critical-only`, `high-only`, `unbounded` in `$ARGUMENTS`. The cap applies to the *consolidated* report, not per sub-step — duplicate findings across reviewers are collapsed before the cap is applied.
+- **Caps**: honor `top=N`, `critical-only`, `high-only`, `unbounded` in `$ARGUMENTS`. The cap applies to the _consolidated_ report, not per sub-step — duplicate findings across reviewers are collapsed before the cap is applied.
 - **Long-form rules**: `~/.claude/REVIEWER_CONVENTIONS.md`.
 
 ## Step 0 — Triage the diff
@@ -19,6 +19,7 @@ git diff --stat
 ```
 
 Classify the changes:
+
 - **UI/page changes** → mobile-check AND a11y-check apply
 - **API route / handler changes** → security review applies
 - **DB / schema / migration changes** → schema-specific review applies (cascade, RLS, constraints, indexes)
@@ -31,7 +32,7 @@ Note which categories you're running and which you're skipping with one-line rat
 
 ## Step 1 — Verification (always)
 
-Run the `verify-app` agent (type check → lint → unit tests → production build, stop-on-first-failure, max 2 fix attempts per step, explicit ran-vs-skipped report). If it returns FAIL, **stop the pipeline** — reviewing code that doesn't compile is wasted work. Don't re-implement the sequence here; the agent owns it.
+Apply **VERIFY-GATE** (`~/.claude/REVIEWER_CONVENTIONS.md` §6) — discover the gate from `package.json`, never assume a script name. No clean-state rebuild needed for a diff pass. If any step fails, **stop the pipeline** — reviewing code that doesn't compile is wasted work.
 
 ## Step 2 — Simplifier pass (always, unless diff is trivial)
 
@@ -78,6 +79,7 @@ Run `/privacy-audit` scoped to the changed surface. Look specifically at: new PI
 Merge findings from all steps, deduplicating across reviewers (Grill and review-changes will often surface the same issue from different angles — keep the more specific one).
 
 Group by severity:
+
 - `CRITICAL` — ship blockers
 - `HIGH` — silent failure, drift from helper, gate bypass
 - `MEDIUM` — defense-in-depth gaps, mobile fails, missing index
@@ -96,6 +98,7 @@ For each: source-step / file:line / one-line / suggested fix.
 If `NEEDS WORK`, ask the user: "Which numbered findings should I fix? Reply with numbers, 'all CRITICAL', or 'all'."
 
 For each picked item:
+
 1. Run `/fix-bug` on it.
 2. Re-run only the step(s) that originally surfaced the finding.
 3. Confirm the fix; move to the next.

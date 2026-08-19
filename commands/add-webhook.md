@@ -5,9 +5,11 @@ description: Scaffold an inbound provider webhook receiver (Stripe/payment/email
 
 Scaffold an inbound webhook from a provider. Description: $ARGUMENTS
 
-It is **not** a normal endpoint — most of the standard handler order is wrong here. A webhook is called by a *server*, not your logged-in user, so there's no session, no Origin, no CSRF, and it must NOT be paywall-gated. Its security model is the **signature**, not auth.
+It is **not** a normal endpoint — most of the standard handler order is wrong here. A webhook is called by a _server_, not your logged-in user, so there's no session, no Origin, no CSRF, and it must NOT be paywall-gated. Its security model is the **signature**, not auth.
 
 ## Before scaffolding
+
+Apply **DISCOVER-FIRST** (`~/.claude/REVIEWER_CONVENTIONS.md` §6) for the project-wide helper map, then the webhook-specific work:
 
 - Read the provider's webhook docs for the exact signature scheme and the header it uses.
 - Find how the project reads raw request bodies — signature verification needs the **raw bytes**, and frameworks that auto-parse JSON destroy them. (Next.js App Router: read `await req.text()` and verify before `JSON.parse`; never `await req.json()` first.)
@@ -25,7 +27,7 @@ It is **not** a normal endpoint — most of the standard handler order is wrong 
 
 ## Must-NOTs (the easy ways to get this wrong)
 
-- **No paywall/access gate.** Webhooks are deliberately un-gated — gating one means the provider's calls get 403'd and entitlements silently never apply. (`/add-endpoint` and the access-audit skills list webhook receivers as a correct gate *exclusion* — keep it that way.)
+- **No paywall/access gate.** Webhooks are deliberately un-gated — gating one means the provider's calls get 403'd and entitlements silently never apply. (**GATE-EXCLUSIONS**, `~/.claude/REVIEWER_CONVENTIONS.md` §6, lists webhook receivers as a correct gate _exclusion_ — keep it that way.)
 - **No `req.json()` before verifying** — it eats the raw body the signature needs.
 - **No trusting any field as identity** — the signature is the only trust boundary.
 - **No 4xx on an event you simply don't handle** — ack 200 or the provider retries indefinitely.

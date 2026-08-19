@@ -1,11 +1,12 @@
 ---
 name: save-context
-description: Save session context to a project-local file before /clear, with archiving and category detection
+description: Save session context to a project-local file before /clear, with archiving and category detection. Use before /clear. NOT restoring it afterwards (use /resume); NOT durable preferences or decisions (those go to memory, not session context).
 ---
 
 Save the current session state to a project-local file so the next session (after `/clear`) can resume.
 
-This is the **handoff** layer of persistence. It is *not* the memory layer.
+This is the **handoff** layer of persistence. It is _not_ the memory layer.
+
 - **Memory** (`~/.claude/projects/.../memory/`) is for things that should outlive any single project session — user preferences, project decisions with lasting context, durable references. It's reloaded automatically.
 - **`session-context.md`** is for "what's in flight right now in this repo". It's stale within days. It lives in the project root and is read by `/resume`.
 
@@ -24,6 +25,7 @@ Create the file with:
 
 ```markdown
 # Session Context
+
 <!-- categories: frontend, backend, api -->
 ```
 
@@ -32,6 +34,7 @@ Create the file with:
 Before any write, snapshot the existing file. This machine's default shell is PowerShell (no `mkdir -p`, no `cp`, no `$(date …)` substitution) — use the PowerShell form, or run the Bash form via the Bash tool:
 
 PowerShell:
+
 ```
 New-Item -ItemType Directory -Force .archive | Out-Null
 $ts = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
@@ -39,6 +42,7 @@ Copy-Item session-context.md ".archive/session-context-$ts.md"
 ```
 
 Bash:
+
 ```
 mkdir -p .archive && cp session-context.md ".archive/session-context-$(date -u +%Y%m%dT%H%M%SZ).md"
 ```
@@ -54,6 +58,7 @@ Scan this conversation for category mentions — file paths touched, topics disc
 Read the existing file, split on `## ` headings.
 
 For each detected category:
+
 - If a section already exists with that name, **replace** it.
 - If not, **append** a new section.
 
@@ -63,28 +68,36 @@ Leave every other section exactly as it was. Do not "tidy" sections you didn't t
 
 ```markdown
 ## {category}
+
 Updated: YYYY-MM-DD HH:MM (UTC)
 
 ### Working On
+
 [1–3 sentences describing the current task and its goal.]
 
 ### Key Decisions
+
 - [Decision, with one-line reasoning.]
 
 ### Results
+
 [What was actually accomplished this session. Metrics, completed deliverables, before/after. "N/A" if it was purely setup/exploration.]
 
 ### Files Touched
+
 - path/to/file — what changed
 - path/to/file — what changed
 
 ### Running Jobs
+
 [Background processes still running (builds, deploys, long agents), or "None".]
 
 ### Context
+
 [References needed to resume that the codebase doesn't already encode — error messages, URLs, version pins, decisions reached out-of-band.]
 
 ### Next Step
+
 [One specific action the next session should take first. Concrete enough to hand to another developer.]
 ```
 

@@ -7,6 +7,8 @@ A vertical slice. Description: $ARGUMENTS
 
 ## Gather from the user first
 
+Apply **DISCOVER-FIRST** (`~/.claude/REVIEWER_CONVENTIONS.md` §6) before asking — knowing what the project already has changes which questions matter. Then gather:
+
 - Feature name
 - Fields and their types
 - Where it belongs in the product

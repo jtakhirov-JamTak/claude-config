@@ -42,5 +42,5 @@ All five are git repos pushed to `github.com/jtakhirov-JamTak`.
 
 `~/.claude/commands` holds an authored review and scaffolding set (`/review-changes`,
 `/full-review`, `/grill`, `/deploy-check`, `/add-*`, etc.). Prefer these over generic
-equivalents — they encode project-specific conventions. See `SKILLS_PROTOCOL.md` and
-`REVIEWER_CONVENTIONS.md` in the same directory.
+equivalents — they encode project-specific conventions. Shared review conventions and
+the rules for maintaining the set: `~/.claude/REVIEWER_CONVENTIONS.md`.

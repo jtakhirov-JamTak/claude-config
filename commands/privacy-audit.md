@@ -15,6 +15,7 @@ Audit the project's handling of personal data. Output is an inventory + gap list
 ## Step 0 — Discover
 
 Before mapping data flows, identify:
+
 - DB(s) and their managed-encryption posture (most managed Postgres / Mongo / RDS encrypt at rest by default — confirm rather than assume)
 - Auth provider (managed services handle password hashing themselves; do not grep for `bcrypt` if you're not running your own auth)
 - AI / transcription / payment / analytics providers in use, and what user data is sent to each
@@ -27,6 +28,7 @@ Don't carry forward assumptions from other projects (Replit, raw SPA, hand-rolle
 ### 1. Data collected
 
 Walk the DB schema (or ORM models). For every column that contains user-provided or user-derived data, classify:
+
 - **Identifiers** — email, phone, name, IP, device id.
 - **Sensitive content** — journals, messages, emotional/health/financial data, voice recordings, photos.
 - **Behavioural** — usage logs, AI prompt history, audit events.
@@ -37,6 +39,7 @@ For each: where it's stored, who can read it (RLS / policies), retention default
 ### 2. Data sharing
 
 For every external provider the app calls server-side or client-side:
+
 - What user data goes out (verbatim user text? hashed identifiers? metadata only?)
 - Under what circumstances (every request? on opt-in?)
 - Whether the provider's terms permit using customer data to train their models (toggle status if applicable — many providers default to training-on by default and require explicit opt-out)
@@ -69,6 +72,7 @@ Client-side: every analytics tag, error sink, and third-party widget. Each is a 
 ## Gap list
 
 For each category, classify:
+
 - **Must have before any real users** — privacy policy, terms, deletion, breach plan.
 - **Required if targeting EU / UK / California / Brazil** — DSR fulfilment workflow, lawful-basis statement, sub-processor list, data-residency commitments.
 - **Should have** — retention policy document, accessibility statement, security disclosures page.

@@ -23,15 +23,14 @@ Skim once for scope. If the diff is large, group changes by file family before r
 
 ## Step 1 — Discover before judging
 
-For any change that calls a project helper (auth, gate, validation, rate limit, error sink), confirm the helper exists and is being used per the existing convention. Find the nearest sibling that does the same thing — that's the standard the new change should match.
-
-Do not flag missing helpers without checking whether the project even has one. "Should use rate limiter" is noise if the project has no rate limiter abstraction yet — flag the architectural gap instead, separately.
+Apply **DISCOVER-FIRST** (`~/.claude/REVIEWER_CONVENTIONS.md` §6): for any change that calls a project helper (auth, gate, validation, rate limit, error sink), confirm the helper exists and is used per the existing convention, and find the nearest sibling doing the same thing — that sibling is the standard the change should match. Don't flag a missing helper the project doesn't have; that's a separate, larger architectural finding.
 
 ## Step 2 — Per-change checks
 
 For each changed file:
 
 ### Correctness
+
 - Logic errors: off-by-one, inverted conditions, wrong operator (`>` vs `>=` on timestamp comparisons is a recurring trap).
 - Null and empty: how does this behave on `null`, `""`, `[]`, `undefined`? Whitespace-only strings pass truthy checks — `.trim()` before `.length`.
 - Async: stale closures over state, missing `await`, unhandled rejection paths, double-fire under React strict mode or under retry.
@@ -39,6 +38,7 @@ For each changed file:
 - Link/route integrity (mechanical): apply **LINK-RESOLVE** (§6) — every internal target the change adds or touches resolves to a page that exists on disk; a dangling target is a live 404 → HIGH. Don't eyeball it; resolve each one.
 
 ### Security
+
 - Auth check present at the entry of every new authenticated route.
 - User-scoped queries filter by the authenticated principal id, not a client-provided value.
 - Origin / CSRF check on mutating routes AND on enumeration GETs.
@@ -47,21 +47,25 @@ For each changed file:
 - New env vars accessed without a runtime guard will crash at runtime, not build time — `process.env.X!` patterns need a startup check.
 
 ### Data exposure
+
 - Can this query return another user's row? If RLS is the only barrier, is it enabled and non-permissive?
 - Are error messages or logs about to ship user content into the error sink? Cross-check the scrub config.
 
 ### Patterns / consistency
+
 - Does this match how the nearest sibling does the same thing?
 - Is the new abstraction earning its weight, or is it three lines pretending to be a framework?
 - Does the change introduce a second source of truth for something the codebase already centralizes (gating, validation, formatting)?
 
 ### UX
+
 - Loading and error states present.
 - Error paths offer a next action.
 - Expensive input survives a gate: apply **GATE-PRESERVE** (§6). A `router.push("/paywall")` in a submit handler "offers a next action" but still destroys the user's filled multi-step form — flag it HIGH separately from the loading/error-state bullets above.
 - Mobile tap targets ≥ 44pt / 48dp; input font-size ≥ 16px.
 
 ### Simplicity
+
 - Could a sibling helper be reused?
 - Is the change reverting a pattern the codebase already converged on?
 

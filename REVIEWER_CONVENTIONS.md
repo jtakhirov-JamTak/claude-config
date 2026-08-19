@@ -1,6 +1,8 @@
 # Reviewer Conventions
 
-Shared conventions for every skill that produces a severity-ranked review or audit. Applies to: `check-access`, `review-changes`, `grill`, `full-review`, `deploy-check`, `mobile-check`, `privacy-audit`, `techdebt`, `ai-prompt-review`, `perf-check`, `a11y-check`, `observability-check`, `dep-audit`, `ci-check`. The built-in `/security-review` and the `staff-reviewer` subagent follow the same conventions when invoked inside `full-review`. (`test` is a generator/auditor hybrid — its `audit` mode follows the caps/scope conventions; its `write` mode produces code, not a ranked report.)
+Lives at `~/.claude/REVIEWER_CONVENTIONS.md` — user-global, so every project picks it up with no per-repo copy. Skills cite that path; keep the file here. A repo-local `.claude/REVIEWER_CONVENTIONS.md` shadows this one — don't create one. (`.claude/exceptions.md` is the opposite: genuinely per-repo, and stays repo-relative in every citation.)
+
+Shared conventions for every skill that produces a severity-ranked review or audit. Applies to: `check-access`, `review-changes`, `grill`, `full-review`, `full-audit`, `deploy-check`, `mobile-check`, `privacy-audit`, `techdebt`, `ai-prompt-review`, `perf-check`, `a11y-check`, `observability-check`, `dep-audit`, `ci-check`, `db-check`. The built-in `/security-review` and the `staff-reviewer` subagent follow the same conventions when invoked inside `full-review`. (`test` is a generator/auditor hybrid — its `audit` mode follows the caps/scope conventions; its `write` mode produces code, not a ranked report.)
 
 Each affected skill inlines a compact 4-line summary of these rules. This file is the long-form reference for when the user wants to understand or change the conventions.
 
@@ -27,6 +29,15 @@ If no scope is provided, each skill uses its default scope:
 | `privacy-audit` | Whole repo |
 | `techdebt` | Whole repo |
 | `deploy-check` | `scope=delta` (default): diff since last deploy. `scope=full`: whole repo |
+| `full-audit` | Whole repo (clean tree) |
+| `a11y-check` | Pages touched by uncommitted changes |
+| `perf-check` | Whole repo's hot paths (`surface=data\|bundle` to halve) |
+| `ai-prompt-review` | Prompt + AI-output-schema files touched by uncommitted changes |
+| `observability-check` | Whole repo's critical paths (`stage=prelaunch\|scaling` sets the bar) |
+| `dep-audit` | Full dependency sweep (or one named package to vet) |
+| `ci-check` | The repo's CI workflow (audit) or none (setup) |
+| `db-check` | The most recent migration on disk (or a named migration / table) |
+| `test` (`audit` mode) | Whole repo's risk surfaces |
 
 State the resolved scope explicitly at the top of the report — "scoped to `src/app/api/coach/prepare/route.ts`", or "scoped to uncommitted changes (12 files)". Never run with an unstated scope assumption.
 
@@ -109,7 +120,7 @@ This structure keeps reports comparable across reviewers and across runs.
 
 ## 5. What a reviewer should NOT do
 
-- Propose fixes inline with findings. Findings are diagnoses; fixes belong in a follow-up pass so the user can review the diagnoses first.
+- Write fixes inline with findings. A one-line "suggested direction" per finding is fine and expected (it's in most skills' output formats); the actual code change belongs in a follow-up pass so the user can review the diagnoses first.
 - Add exceptions on the user's behalf. The user decides what's accepted.
 - Re-flag the same finding the user has already declined in conversation history. If memory or prior in-session feedback contradicts a finding, surface that as a meta-note, not as a finding.
 - Silently skip a category. If category 9 wasn't checked because the diff is backend-only, state that.
@@ -119,7 +130,7 @@ This structure keeps reports comparable across reviewers and across runs.
 
 ## 6. Canonical checks (cite by ID, don't restate)
 
-These rules recur across several reviewers and were previously copy-pasted verbatim (and drifted). Each reviewer now cites the ID with a one-line summary; the full mechanical detail lives here. **When you improve one of these rules, improve it HERE** — the citing commands inherit it.
+These rules recur across several skills — reviewers and scaffolders both — and were previously copy-pasted verbatim (and drifted). Each skill now cites the ID with a one-line summary; the full mechanical detail lives here. **When you improve one of these rules, improve it HERE** — the citing commands inherit it. Adding a rule here while leaving the copies in place is worse than not extracting it: grep the ID's subject across `commands/` and replace every restatement with a citation.
 
 ### LINK-RESOLVE — internal navigation targets resolve to a real route
 
@@ -137,6 +148,57 @@ Clients that return `{ data, error }` (PostgREST/Supabase `maybeSingle()`, bare 
 
 When code that computes a stored snapshot (a derived row, a cached `jsonb` blob, an AI output) changes the **shape** of what it writes (field added/removed/renamed/retyped), the version stamp must bump on BOTH sides: the code-side constant (`PROMPT_VERSION`/`GENERATOR_VERSION`) AND the DB-side column (`generator_version`/`ai_*_version`) the row carries. Reader and writer must filter on that version the same way — if the reader gates on `row.version === CURRENT` but the writer's cache-lookup doesn't, stale rows loop forever; if the writer bumps but the reader doesn't, new-shape rows render as garbage under old-shape code. Fall all-or-nothing per version: a mismatched row triggers live recompute, never a mixed render. A code-side bump with the DB column left untouched is traceability theater — old and new rows become indistinguishable → **HIGH**.
 
+### VERIFY-GATE — run the project's verification gate, discovered not assumed
+
+Run the project's verification gate, discovered from `package.json` — never assume a script name. Use `npm run verify` if it exists; otherwise run the project's own equivalents in order: type check (`typecheck` / `check` / `tsc --noEmit`) → lint → unit tests → production build, stopping on the first failure. State which form you used, and report each step as ran / skipped / failed. Where a `verify` script exists, don't re-implement the sequence — the script owns it. A repo with no single verify script is a gap worth noting once, not a failure.
+
+Callers add their own two clauses: whether to build from a **clean state** (clear `.next`/`dist`/`.turbo` — yes for a final pre-deploy pass or a whole-repo fan-out, no for a quick diff pass), and what a failure **stops** (the review pipeline, the audit fan-out, the deploy). CI must run these same steps — see `ci-check`; local and CI drifting apart defeats the point of a single gate.
+
+### GATE-EXCLUSIONS — routes that must NOT carry the paywall/access gate
+
+The same five routes are wrongly gated over and over. Gating any of them breaks a first-touch or money path silently, because the failure is a 403 nobody sees:
+
+- **Auth callback / session refresh** — gating it locks users out of their own session.
+- **The endpoint that _creates_ the subscription** — gating the thing you buy access with is a deadlock.
+- **Onboarding writes that run before the user can pay** — pre-payment writes must land or the user can never reach the paywall.
+- **Webhook receivers** — called by a provider, not a session; their trust boundary is the signature. A gated webhook 403s the provider and entitlements silently never apply.
+- **Admin routes** — use the admin helper, not the paid gate.
+
+Both directions are findings: a route in this list that IS gated (breaks the flow), and a route outside it that ISN'T (bypass). Auditors flag both; scaffolders must not emit a gate on any of the five.
+
+### MOBILE-FLOOR — the non-negotiable mobile baseline
+
+The floor every user-facing page meets, enforced at scaffold time and audited by `mobile-check`:
+
+- **Input font-size ≥ 16px** — iOS Safari zooms on focus below 16px and silently breaks the form.
+- **Tap targets ≥ 44pt (iOS) / 48dp (Android)** on the tappable axis; wrap native checkboxes in a `<label>` with `min-h-11` so the row is the target. (WCAG AA's own floor is only 24×24 CSS px — `a11y-check` cites that lower bar for conformance; this one is the product bar.)
+- **Contrast ≥ 4.5:1 body, ≥ 3:1 large/decorative.** The default mid-grey utilities (`text-zinc-400`, `text-gray-400`) fail AA at small sizes — go one or two shades darker.
+- **Horizontal padding ≥ 16px** from the viewport edges.
+- **Reserve bottom space for a fixed tab bar** — otherwise the last card sits behind it, partially tappable.
+
+These five numbers are maintained HERE. `mobile-check` audits against them and owns the rest of the device surface (soft-keyboard occlusion, viewport, PWA, interaction traps); `a11y-check` owns the assistive-tech surface and cites WCAG's lower 24x24 target bar deliberately, not by mistake. Scaffolders and auditors alike cite this floor; nobody restates it. If the project's existing pages violate the floor, match the floor, not the siblings.
+
+### DISCOVER-FIRST — find the project's existing helpers before scaffolding or judging
+
+Skip this and you will recommend abstractions that already exist under a different name, or invent a pattern the codebase has already rejected. Read `package.json`, then locate:
+
+| What | Where it usually lives / search terms |
+| --- | --- |
+| Framework + router | `src/app/`, `pages/`, `routes/`, `src/routes/` |
+| Validation library + schemas | `validation`, `schemas`, `zod`, `valibot` |
+| AI output schemas (if AI) | `ai/schemas`, `prompts`, `llm` |
+| Auth helper | `getAuthUser`, `requireUser`, `getServerSession` |
+| CSRF / origin helper | `checkOrigin`, `verifyCsrf`, `sameOrigin` |
+| Rate-limit helper | `rateLimit`, `limiter`, `throttle` |
+| Access gate helper(s) | `requirePaidAccess`, `requireAccess`, `checkSubscription` |
+| Idempotency | `idempotencyKey`, `dedupe`, `requestId` |
+| Migration tool | `supabase/migrations/`, `prisma/migrations/`, `drizzle/`, flyway, dbmate |
+| Generated DB types | `types/database.ts`, `db/schema.ts`, or wherever the regen lands |
+| Authorization model | RLS policies vs app-level middleware vs RBAC table |
+| Styling system | Tailwind, CSS Modules, styled-components, vanilla |
+
+**Read one nearby existing example end-to-end. That is the template.** Match its shape unless there's a deliberate, named reason not to. Reviewers apply the same rule in reverse: don't flag a missing helper without first checking whether the project has one — "should use the rate limiter" is noise in a repo with no rate limiter, and the architectural gap is the separate, larger finding.
+
 ### ENFORCED-NOT-INTENDED — an invariant must be enforced by code that can't silently drift, not merely documented or configured
 
 The cross-cutting one. Reviews reliably catch **commission** (wrong code that's present) and reliably MISS **omission** (a safeguard that's absent). The miss has a signature: a comment or design *states* an invariant ("card-only", "callers guarantee non-null", "PII is scrubbed", "capped at 1000 rows") while nothing in code actually *guarantees* it — and the reassuring comment LOWERS scrutiny because it reads as "handled." So for every assumption you can name in the code under review, find the line that ENFORCES it. If the only thing upholding it is (a) a comment, (b) a provider/dashboard toggle, (c) an env var or build-time convention, or (d) human discipline ("remember to bump the version"), treat it as **unenforced** — it can drift without a code change and without a failing test. Two recurring shapes:
@@ -152,3 +214,23 @@ Apply through each domain's lens (same rule, different surface):
 - **AI** — "user content is delimited from instructions" until a new field bypasses the delimiter; "output validated" while the banned-phrase walker skips nested array fields.
 
 Severity tracks what the unenforced invariant guards: money / auth / data-exposure → **HIGH/CRITICAL**; correctness / perf → **MEDIUM**. (`VERSION-GUARD` above is a specific instance of this rule — the version bump documented but not enforced symmetrically.)
+
+---
+
+## 7. Maintaining this set
+
+The skills live in `~/.claude/commands/`; the agents in `~/.claude/agents/`. Read this before adding, renaming, or retiring one.
+
+**Naming.** Scaffolders `add-<layer>` — five siblings, no router (the `add` router was retired 2026-08-18: its description told you to use the specific command instead, and its only unique content, the discover table, is now `DISCOVER-FIRST` in §6). New audits `<domain>-check`. Actions `<verb>` or `<verb>-<noun>`. Grandfathered, do NOT mass-rename: `check-access`, `privacy-audit`, `dep-audit`, `ai-prompt-review`, `review-changes` — they're cited by orchestrators and by this file, and the cosmetic gain is below the breakage risk.
+
+**File shape.** Frontmatter (`name` matching the filename, one-line `description`) → purpose line + `$ARGUMENTS` → the 4-line reviewer-conventions block if it's a reviewer → Discover-first → steps/checks → Output with a severity ladder and a one-line verdict.
+
+**Description rule.** One line: *what* + *when* + the NOT-clauses pointing at the neighbouring skill. Descriptions are always-loaded, so no check-list enumerations — those go in the body. The NOT-clauses are the triggering disambiguation; never drop one to save tokens.
+
+**Adding a reviewer.** Add it to the roster and the default-scope table above, wire it into `full-review` / `full-audit` / `deploy-check` if it belongs in a pipeline, and give it the 4-line conventions block.
+
+**Retiring anything.** Delete the file, then grep for dangling references — `full-review`, `full-audit`, `deploy-check`, the `add-*` scaffolders, the roster and scope table in this file, the §6 canonical checks, `~/.claude/CLAUDE.md`, `~/.claude/agents/`, and `/x` cross-refs inside other descriptions. This is LINK-RESOLVE applied to the skill set itself, and it is the step that actually gets skipped. An agent in `agents/` that nothing cites is dead weight — grep before assuming it's wired in.
+
+**Never merge two skills** if it blurs a distinct trigger or drops a capability. Efficiency comes from trimming descriptions and sharing rules by reference, never from collapsing capabilities.
+
+**Shell-neutral.** Machine and shell specifics live in `~/.claude/CLAUDE.md`, not in a skill. Where a skill must show a command the user will paste by hand (`commit`, `save-context`, `worktree`), show the PowerShell form beside the Bash one.
