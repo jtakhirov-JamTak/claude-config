@@ -12,6 +12,7 @@
 !/REVIEWER_CONVENTIONS.md
 !/PROJECTS.md
 !/FIX_LOG.md
+!/DECISIONS.md
 !/.gitattributes
 !/hooks/
 !/statusline.ps1

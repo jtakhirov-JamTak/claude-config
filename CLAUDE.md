@@ -63,7 +63,7 @@ IMPORTANT: two failed fixes mean the diagnosis is wrong, not the fix.
 
 - Every real defect gets a dated entry in `docs/FIX_LOG.md`: problem, fix, regression
   test, where it was found. Lock it with a regression test on the exact failing input.
-  (`~/.claude` is the exception — its log is `FIX_LOG.md` at the repo root.)
+  (`~/.claude` is the exception — its `FIX_LOG.md` and `DECISIONS.md` sit at the repo root.)
 - Template-derived apps split this: `docs/FIX_LOG.md` for what the next app from the
   template would also hit, `docs/APP_FIX_LOG.md` for the rest.
 - `docs/DECISIONS.md` keeps decisions with the numbers that settled them. Read it before
