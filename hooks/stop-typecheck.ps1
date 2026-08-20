@@ -1,5 +1,10 @@
 # Turn-boundary typecheck — NOT YET ENABLED.
 #
+# Deliberately dormant. Do NOT wire this up on principle — a hook that blocks the end
+# of a turn is the pattern that has caused trouble before. The evidence trigger for
+# turning it on is specific: repeatedly shipping type errors. Absent that, the cost
+# (a wrong verdict blocking work) outweighs the benefit.
+#
 # To turn on, add to settings.json "hooks":
 #   "Stop": [{ "hooks": [{ "type": "command",
 #     "command": "powershell -NoProfile -ExecutionPolicy Bypass -File C:/Users/jtakh/.claude/hooks/stop-typecheck.ps1" }]}]

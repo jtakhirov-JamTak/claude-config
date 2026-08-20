@@ -10,6 +10,8 @@
 !/agents/
 !/CLAUDE.md
 !/REVIEWER_CONVENTIONS.md
+!/PROJECTS.md
+!/FIX_LOG.md
 !/.gitattributes
 !/hooks/
 !/statusline.ps1

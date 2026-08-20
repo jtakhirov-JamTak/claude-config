@@ -10,15 +10,20 @@
   "effortLevel": "high",
   "tui": "default",
   "permissions": {
+    "defaultMode": "auto",
     "deny": [
       "Read(~/**/.env)",
       "Read(~/**/.env.local)",
       "Read(~/**/.env.*.local)",
       "Read(~/**/.env.production)",
       "Bash(git reset --hard:*)",
+      "PowerShell(git reset --hard:*)",
       "Bash(git clean:*)",
+      "PowerShell(git clean:*)",
       "Bash(git push --force:*)",
-      "Bash(git push -f:*)"
+      "PowerShell(git push --force:*)",
+      "Bash(git push -f:*)",
+      "PowerShell(git push -f:*)"
     ]
   },
   "hooks": {

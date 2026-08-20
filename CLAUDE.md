@@ -23,6 +23,7 @@ Applies to every project unless a project-level CLAUDE.md says otherwise.
 
 ## Working style
 
+- Do not make things up. Do not provide an answer until you can verify it in the code.
 - Lead with the answer. Keep explanations short; expand only when asked.
 - Two failed fixes mean the diagnosis is wrong, not the fix. Attempt 3 must test a
   genuinely different explanation — never a third variation on the same theory — or
@@ -80,16 +81,10 @@ Applies to every project unless a project-level CLAUDE.md says otherwise.
 
 ## Active projects
 
-| Path | What it is | State |
-|---|---|---|
-| `pure-eq` | Insights app | **Live — the only shipped app.** |
-| `the-leaf-v2` | Leaf — the main product | In build; MVP polish, first workshop April 2026 |
-| `dev\app-foundation` | Shared scaffolding / reference architecture | Reference only, never deployed |
-| `you-inc` | Scoring + pricing app | Early |
-| `PurePath` | Habit / sprint app | Early |
-
-All five are git repos pushed to `github.com/jtakhirov-JamTak`. Only `pure-eq` has
-users, so "is this safe to ship" means something different there than in the rest.
+Inventory, state, and repo list: `~/.claude/PROJECTS.md` — read it before judging risk
+in an unfamiliar repo. The one fact that changes behaviour everywhere and so stays here:
+**`pure-eq` is the only app with real users**, so "is this safe to ship" means something
+different there than in the other four.
 
 ## This directory is versioned
 
