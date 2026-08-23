@@ -3,6 +3,30 @@
 Kept verbatim with the numbers that settled them, per the decisions rule in `CLAUDE.md`.
 Read this before re-attempting anything recorded as rejected. Newest first.
 
+### 2026-08-23 — The scaffold lives in `new-app.ps1`; the command delegates to it
+
+**Decision:** `new-app.ps1` is the single definition of the scaffold.
+`commands/new-app.md` runs it and reports; it does not restate the steps.
+
+**Why the script and not the command.** A session binds its project root at
+launch, so a `/new-app` run from the dev root cannot load the app it just
+created — it needed a second session. Running the scaffold in the terminal
+first and launching `claude` once, inside the new folder, removes that entirely.
+The command still exists for when you want the checks run for you.
+
+**Rejected — keeping the steps in both places.** Two copies of six commands
+drift the moment one changes, and the command was already the stale copy once
+(it told you to verify `core.hooksPath` with a read the guard then blocked).
+
+**On `/cd`:** it can rebind a session's project root — documented. Whether hooks
+and permission rules follow the rebind is **not** documented, so neither file
+suggests it. Fresh launch inside the app instead.
+
+**The interpreter check is not ceremony.** Hooks fail open on their own errors by
+design, so a missing `python` makes the guardrails decorative rather than
+loudly broken. The script fails hard there, and patches `settings.json` to `py`
+if that is what resolves.
+
 ### 2026-08-23 — `shell_guard.py` installed as a user-level PreToolUse hook
 
 **Decision:** the command guard written for the app template now also runs

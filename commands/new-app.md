@@ -1,93 +1,53 @@
 ---
 name: new-app
-description: Scaffold a new app from the agentic-template-v4 GitHub template — create the repo, wire the pre-commit hook, verify the Python interpreter, and hand off to /interview. Use when starting a brand-new app. NOT adding a feature to an existing app (use /add-feature); NOT a second branch of current work (use /worktree).
+description: Scaffold a new app from the agentic-template-v4 GitHub template by running ~/.claude/new-app.ps1. Use when starting a brand-new app. NOT adding a feature to an existing app (use /add-feature); NOT a second branch of current work (use /worktree).
 ---
 
 Scaffold a new app from the template. App name: $ARGUMENTS
 
-The template is `jtakhirov-JamTak/agentic-template-v4`. This command creates the
-repo, makes the guardrails actually load, and stops — planning happens in
-`/interview`, in a fresh session, inside the new directory.
+The scaffold is defined in one place — `~/.claude/new-app.ps1`. Run it; do not
+restate or re-implement its steps here, and do not "helpfully" run the
+underlying git/gh commands yourself. One canonical definition is the point.
 
-Shell is PowerShell 5.1: chain with `;` or `if ($?) { ... }`, never `&&` or `||`.
-
-## Step 0 — Location
-
-Run from the dev root `C:\Users\jtakh\dev`, never from `C:\Users\jtakh` itself —
-a session started at the home directory loads no project `CLAUDE.md`.
-
-Confirm the app name is not already taken:
+## Run it
 
 ```
-Test-Path "C:\Users\jtakh\dev\<name>"
+powershell -NoProfile -ExecutionPolicy Bypass -File C:/Users/jtakh/.claude/new-app.ps1 <name>
 ```
 
-If it exists, stop and ask. Do not overwrite.
+Pass `-Public` through only if the human explicitly asked for a public repo.
 
-## Step 1 — Create the repo from the template
+The script preflights the name locally and on GitHub, creates the repo from the
+template, wires `core.hooksPath`, sets and verifies the `100755` bit on
+`.githooks/pre-commit`, and checks that the interpreter the hooks invoke
+actually resolves — patching `settings.json` to `py` if that is what exists. It
+fails loudly on any of those; it does not half-succeed.
 
-```
-gh repo create <name> --template jtakhirov-JamTak/agentic-template-v4 --private --clone
-```
+## Report
 
-Private by default. If the human wants it public, they say so — public is
-effectively irreversible once indexed.
+Relay what the script printed. Say plainly which things it verified
+(`core.hooksPath`, pre-commit mode, interpreter) and which it could not:
+**hook registration and permission rules need a live session in the new folder,
+and this session is not it.** Do not claim those passed.
 
-## Step 2 — Point git at the template's hooks
+## Then stop
 
-```
-cd <name> ; git config core.hooksPath .githooks
-```
+Tell the human to launch `claude` in the new directory themselves — and say why,
+because it looks like pointless ceremony otherwise:
 
-Without this, `.githooks/pre-commit` never runs and red code can be committed.
-Verify it took:
+- A session binds its project root at launch. Project `CLAUDE.md`,
+  `.claude/settings.json` and the hooks all resolve against that root, so this
+  session cannot load a project that did not exist when it started.
+- `/cd` can rebind the project root — that much is documented — but whether
+  hooks and permission rules follow the rebind is **not** documented. Do not
+  rely on it. A fresh launch inside the app costs seconds and removes the
+  question.
+- A trust dialog appears on first launch. If it is declined, none of the project
+  hooks or permission rules load.
 
-```
-git config core.hooksPath
-```
+Then give them the canary, which is the first thing worth doing in that session:
 
-## Step 3 — Make the pre-commit hook executable
+> Ask Claude to read `.env`. It must be **denied**. If the read succeeds, the
+> project settings did not load — stop and fix that before building anything.
 
-Windows git checks the file out non-executable, and CI/WSL/macOS silently skip
-non-executable hooks. The template's files are already tracked after a
-`--template --clone`, so set the bit directly and commit it:
-
-```
-git update-index --chmod=+x .githooks/pre-commit ; git commit -m "chore: mark pre-commit hook executable"
-```
-
-Confirm the mode is `100755`:
-
-```
-git ls-files -s .githooks/pre-commit
-```
-
-## Step 4 — Verify the interpreter the hooks call
-
-The three PreToolUse hooks invoke `python` by name. If only `py` resolves on
-this machine, every hook dies silently and the guardrails are decorative.
-
-```
-python --version
-```
-
-If that fails, patch `"command": "python"` to `"command": "py"` in
-`.claude/settings.json` — all three hook entries — and re-check.
-
-## Step 5 — Confirm the guardrails loaded, then hand off
-
-Do not report success on the basis of the commands above exiting 0. Say plainly
-which of these you checked and which you did not:
-
-- `core.hooksPath` reads back as `.githooks`
-- `.githooks/pre-commit` is mode `100755`
-- `python --version` printed a version
-
-Then print, verbatim:
-
-> Scaffold ready. Start `claude` in this directory, Shift+Tab into Plan Mode,
-> and run `/interview <your app idea>`.
-
-Hook and permission checks that need a live session — `/hooks`, `/permissions`,
-and the deny-rule spot checks in the template README — belong to that next
-session, not this one. Say so rather than claiming they passed.
+After the canary passes: Shift+Tab into Plan Mode, run `/interview <app idea>`.

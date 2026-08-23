@@ -17,6 +17,7 @@
 !/.gitattributes
 !/hooks/
 !/statusline.ps1
+!/new-app.ps1
 !/settings.json
 !/.gitignore
 
