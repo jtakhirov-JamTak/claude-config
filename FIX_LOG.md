@@ -3,6 +3,56 @@
 Defects in this repository: the rules, commands, hooks, and permission config. Format
 per the fix-log rule in `CLAUDE.md`. Newest first.
 
+### 2026-08-23 — `new-app` could never scaffold anything: a stderr redirect under EAP=Stop
+
+**Problem:** `new-app Compass` died in Step 0 with `NativeCommandError` from
+`gh repo view`. The cause was not `gh` and not GitHub — it was line 65 of `new-app.ps1`:
+
+    gh repo view "jtakhirov-JamTak/$Name" 2>$null | Out-Null
+    if ($?) { Fail "A GitHub repo named '$Name' already exists." }
+
+PowerShell 5.1 wraps a native command's stderr in `ErrorRecord`s **when that stderr is
+redirected**, and `$ErrorActionPreference = 'Stop'` (line 31) turns those into a
+*terminating* error. `gh repo view` writes to stderr on the good path — the repo does not
+exist — so the script aborted at the exact moment it had proved the name was free. The
+script was unrunnable in both directions: a free name threw, and a taken name hit `Fail`.
+Every scaffold since the redirect was introduced would have failed the same way. This is
+the exact pitfall already written down in `CLAUDE.md` under "This machine"
+(*"Avoid `2>&1` on native executables"*), applied to `2>$null`.
+
+**Fix:** Drop `$ErrorActionPreference` to `Continue` around the probe, merge stderr into
+the pipeline instead of the null device, and read `$LASTEXITCODE` — the only reliable
+signal — then restore the previous preference:
+
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    gh repo view "jtakhirov-JamTak/$Name" 2>&1 | Out-Null
+    $repoExists = ($LASTEXITCODE -eq 0)
+    $ErrorActionPreference = $prevEap
+    if ($repoExists) { Fail "A GitHub repo named '$Name' already exists." }
+
+`$?` was checked at each of lines 78/87/99/102 too; those follow *unredirected* native
+calls, and a native command writing to stderr with no redirect leaves `$?` `True`
+(verified), so they are sound and were left alone.
+
+**Regression test:** The check now has a failure mode, which the old one did not — it
+threw before it could decide anything. Run the block at `$ErrorActionPreference = 'Stop'`
+over two names and assert both directions:
+
+    Compass              -> $repoExists = False   (free; must NOT throw)
+    agentic-template-v4  -> $repoExists = True    (taken; must trip Fail)
+
+`agentic-template-v4` is the input that turns it red; without it a check that always
+returns False looks green. Verified in both directions on 2026-08-23. Manual, not
+hook-enforced — that is the honest state.
+
+**Related, verified not firing:** `python --version 2>&1` (line 128) and
+`py --version 2>&1` (line 143) are the same construct under the same `EAP=Stop`. Both
+interpreters on this machine write the version to stdout, so neither throws today; an
+interpreter build that emits a warning to stderr would kill the scaffold the same way.
+
+**Found in:** the user's terminal, first real run of `new-app`.
+
 ### 2026-08-19 — A coverage check drew its criteria from the artifact it was checking
 
 **Problem:** `CLAUDE.md` was restructured rather than edited, and the rewrite was verified

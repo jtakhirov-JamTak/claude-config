@@ -62,8 +62,17 @@ if ((Resolve-Path $Root).Path.TrimEnd('\') -eq $HOME.TrimEnd('\')) {
 try { Get-Command gh -ErrorAction Stop | Out-Null } catch { Fail 'gh CLI not found on PATH.' }
 try { Get-Command git -ErrorAction Stop | Out-Null } catch { Fail 'git not found on PATH.' }
 
-gh repo view "jtakhirov-JamTak/$Name" 2>$null | Out-Null
-if ($?) { Fail "A GitHub repo named '$Name' already exists." }
+# PS 5.1 wraps a native command's stderr in ErrorRecords when it is redirected,
+# and $ErrorActionPreference='Stop' makes that a TERMINATING error. `gh repo view`
+# writes to stderr on the good path (repo does not exist), so a plain `2>$null`
+# here killed the script exactly when the name was free. Drop EAP to Continue for
+# the call and read the exit code, which is the only reliable signal.
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+gh repo view "jtakhirov-JamTak/$Name" 2>&1 | Out-Null
+$repoExists = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = $prevEap
+if ($repoExists) { Fail "A GitHub repo named '$Name' already exists." }
 
 Write-Host "  name '$Name' is free locally and on GitHub"
 
