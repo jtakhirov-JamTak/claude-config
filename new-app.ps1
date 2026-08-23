@@ -20,7 +20,7 @@ param(
     [Parameter(Mandatory = $true, Position = 0)]
     [string]$Name,
 
-    [string]$Root = 'C:\Users\jtakh\dev',
+    [string]$Root = (Join-Path $HOME 'dev'),
 
     [switch]$Public,
 
@@ -55,7 +55,7 @@ if (Test-Path $target) { Fail "'$target' already exists. Pick another name." }
 
 # Never scaffold into the home directory itself — a session started there loads
 # no project CLAUDE.md.
-if ((Resolve-Path $Root).Path.TrimEnd('\') -eq 'C:\Users\jtakh') {
+if ((Resolve-Path $Root).Path.TrimEnd('\') -eq $HOME.TrimEnd('\')) {
     Fail 'Refusing to scaffold into the home directory. Use a dev root.'
 }
 

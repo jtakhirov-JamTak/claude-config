@@ -18,6 +18,8 @@
 !/hooks/
 !/statusline.ps1
 !/new-app.ps1
+!/powershell-profile.ps1
+!/sync-profile.ps1
 !/settings.json
 !/.gitignore
 
