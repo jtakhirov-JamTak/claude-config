@@ -90,8 +90,14 @@ def canon_ps(cmd):
 GIT_RULES = [
     (r"git\s+commit\b[^;|&]*(--no-verify|\s-n\b)",
      "Bypassing commit verification is blocked. Fix the check instead."),
-    (r"git\s+config\s+.*hooksPath",
-     "Repointing git hooks is blocked. .githooks/pre-commit is a release control."),
+    # Only writes repoint the hooks. Reading the value is harmless, and
+    # /new-app step 2 depends on it — over-blocking a read trains workarounds.
+    (r"git\s+config\b[^;|&]*hooksPath\s+[^\s;|&]",
+     "Repointing git hooks is blocked. .githooks/pre-commit is a release "
+     "control. Reading it (`git config --get core.hooksPath`) is fine."),
+    (r"git\s+config\b[^;|&]*(--unset|--unset-all|--replace-all|--add)\b[^;|&]*hooksPath",
+     "Removing or rewriting the git hooks path is blocked. .githooks/pre-commit "
+     "is a release control."),
     # Every force form, not just `--force` before an explicit main/master:
     # --force-with-lease and --force-if-includes rewrite history too, and
     # `git push origin +main` is a force push spelled as a refspec.

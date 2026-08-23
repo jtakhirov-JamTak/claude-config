@@ -20,7 +20,17 @@ CASES = [
     # ---- git rules, Bash ----
     ("Bash", "git commit --no-verify -m x", "", 2, "bash --no-verify"),
     ("Bash", "git commit -n -m x", "", 2, "bash -n shorthand"),
-    ("Bash", "git config core.hooksPath /tmp/x", "", 2, "bash hooksPath"),
+    ("Bash", "git config core.hooksPath /tmp/x", "", 2, "bash hooksPath write"),
+    ("Bash", "git config --local core.hooksPath /tmp/x", "", 2, "hooksPath write with scope"),
+    ("Bash", "git config --unset core.hooksPath", "", 2, "hooksPath unset"),
+    ("Bash", "git config --replace-all core.hooksPath x", "", 2, "hooksPath replace-all"),
+    # Reads must stay allowed: /new-app step 2 verifies the value this way, and
+    # blocking a read teaches the agent to route around the guard.
+    ("Bash", "git config core.hooksPath", "", 0, "hooksPath bare read allowed"),
+    ("Bash", "git config --get core.hooksPath", "", 0, "hooksPath --get allowed"),
+    ("Bash", "git config --get-all core.hooksPath", "", 0, "hooksPath --get-all allowed"),
+    ("PowerShell", "git config --get core.hooksPath", "", 0, "ps hooksPath --get allowed"),
+    ("PowerShell", "git config core.hooksPath .githooks", "", 2, "ps hooksPath write"),
     ("Bash", "git reset --hard HEAD~1", "", 2, "bash reset --hard"),
     ("Bash", "git clean -fd", "", 2, "bash clean -f"),
     ("Bash", "git checkout -- .", "", 2, "bash checkout --"),
