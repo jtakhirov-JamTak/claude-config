@@ -12,10 +12,17 @@ underlying git/gh commands yourself. One canonical definition is the point.
 ## Run it
 
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -File C:/Users/jtakh/.claude/new-app.ps1 <name>
+powershell -NoProfile -ExecutionPolicy Bypass -File C:/Users/jtakh/.claude/new-app.ps1 <name> -NoLaunch
 ```
 
+`-NoLaunch` is required here and is not optional. The script's last step is to
+start Claude in the new folder — correct when a human runs it from a terminal,
+wrong from inside this session, where it would nest Claude inside Claude.
+
 Pass `-Public` through only if the human explicitly asked for a public repo.
+
+The script exits non-zero on any failure and does not half-scaffold. If it
+fails, report the `FAILED:` line as-is rather than trying to continue by hand.
 
 The script preflights the name locally and on GitHub, creates the repo from the
 template, wires `core.hooksPath`, sets and verifies the `100755` bit on

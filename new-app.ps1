@@ -22,7 +22,10 @@ param(
 
     [string]$Root = 'C:\Users\jtakh\dev',
 
-    [switch]$Public
+    [switch]$Public,
+
+    # Scaffold only: leave you in the new folder without starting Claude.
+    [switch]$NoLaunch
 )
 
 $ErrorActionPreference = 'Stop'
@@ -134,24 +137,44 @@ if ($python) {
 }
 
 # --- Done --------------------------------------------------------------------
+# Everything below prints BEFORE Claude starts, because once it does it owns the
+# terminal and anything written here scrolls away unread.
 Write-Host ''
 Write-Host '--- Scaffold ready ---------------------------------------------' -ForegroundColor Green
 Write-Host "  $target"
 Write-Host ''
 Write-Host '  Verified: core.hooksPath, pre-commit mode 100755, interpreter resolves.'
 Write-Host '  NOT verified (needs a live session): hook registration, permission rules.'
+Write-Host '  That is what the canary below is for.'
 Write-Host ''
-Write-Host '  Next, in THIS folder:' -ForegroundColor Cyan
-Write-Host '    claude'
+Write-Host '  TWO THINGS ONLY YOU CAN DO:' -ForegroundColor Yellow
 Write-Host ''
-Write-Host '  Expect a trust dialog on first launch — accept it, or none of the'
-Write-Host '  project hooks or permission rules load.'
+Write-Host '   1. Accept the trust dialog on first launch.' -ForegroundColor Yellow
+Write-Host '      Decline it and no project hooks or permission rules load.'
 Write-Host ''
-Write-Host '  Then canary-test before trusting the guardrails:' -ForegroundColor Cyan
-Write-Host '    ask Claude to read .env   ->  must be DENIED'
-Write-Host ''
-Write-Host '  If that read succeeds, the project settings did not load. Stop and'
-Write-Host '  fix that before building anything.'
+Write-Host '   2. Send this as your first message:' -ForegroundColor Yellow
+Write-Host '           read .env'
+Write-Host '      It must be DENIED. If Claude reads it, the project settings did'
+Write-Host '      not load - stop and fix that before building anything.'
 Write-Host ''
 Write-Host '  Then: Shift+Tab into Plan Mode, run  /interview <your app idea>'
 Write-Host '----------------------------------------------------------------' -ForegroundColor Green
+Write-Host ''
+
+Set-Location $target
+
+if ($NoLaunch) {
+    Write-Host 'Scaffold only (-NoLaunch). Run `claude` here when ready.'
+    exit 0
+}
+
+$claude = $null
+try { $claude = Get-Command claude -ErrorAction Stop } catch { }
+if (-not $claude) {
+    Write-Host 'claude not found on PATH - scaffold is complete, start it yourself.' -ForegroundColor Yellow
+    exit 0
+}
+
+Write-Host 'Starting Claude...' -ForegroundColor Cyan
+Write-Host ''
+claude
