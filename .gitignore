@@ -8,6 +8,7 @@
 # --- Re-include the authored skill set ---
 !/commands/
 !/agents/
+!/skills/
 !/CLAUDE.md
 !/REVIEWER_CONVENTIONS.md
 !/PROJECTS.md

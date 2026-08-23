@@ -38,6 +38,9 @@ IMPORTANT: each of these is unrecoverable once broken.
 
 ## Before and during an edit
 
+- Before optimizing or building anything non-trivial, ask what should not exist and
+  try deleting it; name what would guarantee failure before proposing how to succeed.
+- Full protocol: `/interview` for new apps, the `solutioning` skill otherwise.
 - When fixing something, say which layer you believe the cause is in before you edit.
 - Execute the whole plan. Don't stop at the easy half.
 - Change course only on evidence: a failing test, a query result, a log line. Never a hunch.

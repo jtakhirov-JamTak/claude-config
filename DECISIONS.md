@@ -3,6 +3,32 @@
 Kept verbatim with the numbers that settled them, per the decisions rule in `CLAUDE.md`.
 Read this before re-attempting anything recorded as rejected. Newest first.
 
+### 2026-08-23 — `hooks/stop-typecheck.ps1` stays dormant and unregistered
+
+**Decision:** the file stays on disk, stays out of `settings.json`, and is not
+deleted. It is parked, not orphaned — this entry is the record that says so.
+
+**Context.** A config review flagged it as an orphan (present in `hooks/`, absent
+from `settings.json` `"hooks"`) and offered register-or-delete. Its own header
+already answers that: *"Deliberately dormant. Do NOT wire this up on principle — a
+hook that blocks the end of a turn is the pattern that has caused trouble before."*
+
+**Rejected — registering it.** The evidence trigger is named and specific:
+repeatedly shipping type errors. That has not happened. A Stop hook returning a
+wrong verdict blocks the end of a turn, and the only escape is Claude Code's
+8-consecutive-block override — a cost paid on every false positive against a
+benefit that is currently hypothetical.
+
+**Rejected — deleting it.** The implementation is complete and carries reasoning
+that would have to be re-derived: script discovery over a hardcoded
+`npm run typecheck` (only one of five projects has that script), Stop rather than
+PostToolUse (per-edit typechecking flags intentionally incomplete mid-refactor
+states), and exit 2 for self-correction. Deleting costs that; keeping it costs
+nothing but the file.
+
+**Re-open when:** type errors reach a commit twice. Then register it per the
+wiring snippet in the file header, and record the trigger event here.
+
 ### 2026-08-19 — Prune `CLAUDE.md`; do not reorder it
 
 **Decision:** `CLAUDE.md` is maintained by pruning against per-line necessity — *would
