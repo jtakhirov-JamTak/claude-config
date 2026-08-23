@@ -3,6 +3,42 @@
 Kept verbatim with the numbers that settled them, per the decisions rule in `CLAUDE.md`.
 Read this before re-attempting anything recorded as rejected. Newest first.
 
+### 2026-08-23 — `shell_guard.py` installed as a user-level PreToolUse hook
+
+**Decision:** the command guard written for the app template now also runs
+machine-wide, registered in `settings.json` for `Bash|PowerShell`.
+
+**Context.** A `/permissions` review turned up that `permissions.deny` matches a
+command *prefix*, so `Bash(rm -rf:*)` covers `rm -rf x` and nothing else — not
+`rm -fr x`, not `rm -r -f x`, not `cd s ; rm -rf x`. Checking the five real
+projects then showed the bigger problem: `pure-eq`, `the-leaf-v2`, `you-inc`,
+`PurePath` and `dev/app-foundation` have **zero** deny rules and no command
+guard between them (app-foundation has a Stop-typecheck hook and nothing else).
+The only protection in those repos was the 12 user-level denies, which contain
+no `rm` or `Remove-Item` entry at all. `pure-eq` has real users.
+
+**Rejected — adding prefix denies to the user file.** Two lines, but it inherits
+the exact weakness that caused the problem: it would describe one spelling of
+`rm`, not the capability. A rule that misses `rm -fr` is worse than no rule,
+because it reads as coverage.
+
+**Rejected — per-project installs.** Five copies of the same script to keep in
+sync, and it leaves any future repo unprotected until someone remembers.
+
+**Accepted — one user-level hook.** Parses the command instead of prefix-matching
+it, so flag order, flag splitting, abbreviation, PowerShell aliasing and
+position in the line all stop mattering. Covers every repo including ones that
+do not exist yet. The template keeps its own copy so a scaffolded app stays
+self-contained; the two files are byte-identical and both carry the 87-case
+test.
+
+**Known limit, accepted:** the hook blocks recursive deletes, not single-file
+ones. Blocking every delete would fire constantly on temp files and would make
+the test suite's ALLOW column meaningless. A single-file delete is therefore
+governed by the `CLAUDE.md` hard stop behaviourally, not mechanically, outside a
+template-derived project. Re-open if a single-file delete ever destroys
+something that mattered.
+
 ### 2026-08-23 — `hooks/stop-typecheck.ps1` stays dormant and unregistered
 
 **Decision:** the file stays on disk, stays out of `settings.json`, and is not
