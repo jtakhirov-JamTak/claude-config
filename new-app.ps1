@@ -31,9 +31,21 @@ param(
 $ErrorActionPreference = 'Stop'
 $TEMPLATE = 'jtakhirov-JamTak/agentic-template-v4'
 
+# Stages are recorded as they complete so a failure can say how far it got. The thing
+# you actually need to know on a failure is whether a GitHub repo now exists.
+$script:Completed = @()
+function Ok($msg) { $script:Completed += $msg }
+
 function Fail($msg) {
     Write-Host ''
     Write-Host "FAILED: $msg" -ForegroundColor Red
+    if ($script:Completed.Count -eq 0) {
+        Write-Host '  Completed: nothing. Failed in preflight - no repo was created.' -ForegroundColor Yellow
+    } else {
+        Write-Host '  Completed:' -ForegroundColor Yellow
+        foreach ($s in $script:Completed) { Write-Host "    - $s" }
+        Write-Host '  Nothing after that ran.' -ForegroundColor Yellow
+    }
     exit 1
 }
 
@@ -76,6 +88,37 @@ if ($repoExists) { Fail "A GitHub repo named '$Name' already exists." }
 
 Write-Host "  name '$Name' is free locally and on GitHub"
 
+# The template has to be reachable before we try to create anything from it. Same EAP
+# dance as above and for the same reason: `gh repo view` writes to stderr on paths that
+# are not failures, and a plain `2>$null` under EAP=Stop killed this script once already.
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+gh repo view $TEMPLATE 2>&1 | Out-Null
+$templateOk = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = $prevEap
+if (-not $templateOk) {
+    Fail "Template '$TEMPLATE' is not reachable. Check the name and that gh is authenticated."
+}
+Write-Host "  template $TEMPLATE is reachable"
+
+# The interpreter the hooks invoke, checked BEFORE anything is created. Hooks fail OPEN
+# on their own errors by design, so a missing interpreter means the guardrails are
+# silently decorative rather than loudly broken. Detection belongs here; the settings
+# patch that acts on it stays in Step 4, because it edits a file that does not exist
+# until after the clone.
+$script:HasPython = $null -ne (Get-Command python -ErrorAction SilentlyContinue)
+$script:HasPy     = $null -ne (Get-Command py     -ErrorAction SilentlyContinue)
+if (-not $script:HasPython -and -not $script:HasPy) {
+    Fail 'Neither `python` nor `py` resolves. The hooks would fail open and the guardrails would be decorative. Install Python, then re-run.'
+}
+if ($script:HasPython) {
+    Write-Host '  interpreter: python'
+} else {
+    Write-Host '  interpreter: py (settings.json will be patched in Step 4)'
+}
+
+Ok 'Step 0 preflight - name free, dev root, gh/git, template reachable, interpreter resolves'
+
 # --- Step 1: create from the template ---------------------------------------
 Step 1 'Creating repo from template'
 
@@ -88,6 +131,7 @@ if (-not $?) { Fail 'gh repo create failed.' }
 if (-not (Test-Path $target)) { Fail 'Clone did not produce the expected directory.' }
 
 Set-Location $target
+Ok "Step 1 GitHub repo created from template and cloned to $target  <-- THIS EXISTS NOW"
 
 # --- Step 2: point git at the template's hooks ------------------------------
 Step 2 'Wiring .githooks'
@@ -98,6 +142,7 @@ if (-not $?) { Fail 'git config core.hooksPath failed.' }
 $hp = git config --get core.hooksPath
 if ($hp -ne '.githooks') { Fail "core.hooksPath reads back as '$hp', expected '.githooks'." }
 Write-Host "  core.hooksPath = $hp"
+Ok 'Step 2 core.hooksPath wired to .githooks'
 
 # --- Step 3: make pre-commit executable -------------------------------------
 Step 3 'Marking pre-commit executable'
@@ -107,31 +152,23 @@ Step 3 'Marking pre-commit executable'
 git update-index --chmod=+x .githooks/pre-commit
 if (-not $?) { Fail 'git update-index failed.' }
 
-git commit -m 'chore: mark pre-commit hook executable'
-if (-not $?) { Fail 'Commit of the mode change failed.' }
-
+# Staged, not committed - committing is yours to do. This still verifies the real thing:
+# `git ls-files -s` reads the INDEX, which is exactly where --chmod=+x just wrote, so the
+# check does not depend on a commit having happened.
 $mode = (git ls-files -s .githooks/pre-commit) -split '\s+' | Select-Object -First 1
 if ($mode -ne '100755') { Fail "pre-commit mode is $mode, expected 100755." }
-Write-Host "  pre-commit mode = $mode"
+Write-Host "  pre-commit mode = $mode (staged, not committed)"
+Ok 'Step 3 pre-commit staged with mode 100755'
 
 # --- Step 4: the interpreter the hooks call ---------------------------------
-Step 4 'Checking the Python the hooks invoke'
+Step 4 'Pointing settings.json at the interpreter that exists'
 
-# The PreToolUse hooks invoke `python` by name. Hooks fail OPEN on their
-# own errors by design, so a missing interpreter means the guardrails are
-# silently decorative rather than loudly broken. This is the check that catches
-# it.
-$python = $null
-try { $python = Get-Command python -ErrorAction Stop } catch { }
-
-if ($python) {
+# WHICH interpreter exists was settled in Step 0 preflight, before anything was created.
+# This step only acts on that answer, because the file it patches does not exist until
+# the clone above.
+if ($script:HasPython) {
     Write-Host "  $(python --version 2>&1)"
 } else {
-    $launcher = $null
-    try { $launcher = Get-Command py -ErrorAction Stop } catch { }
-    if (-not $launcher) {
-        Fail 'Neither `python` nor `py` resolves. The hooks would fail open and the guardrails would be decorative. Install Python, then re-run.'
-    }
     Write-Host '  `python` missing but `py` resolves — patching .claude/settings.json' -ForegroundColor Yellow
     $settings = '.claude/settings.json'
     $raw = Get-Content $settings -Raw
@@ -154,10 +191,10 @@ if ($python) {
     }
     $left = (Select-String -Path $settings -Pattern '"command": "python"' -AllMatches).Count
     if ($left -ne 0) { Fail "settings.json still has $left python entries." }
-    Write-Host "  patched, JSON valid, no BOM ($(py --version 2>&1))"
+    Write-Host "  patched, JSON valid, no BOM ($(py --version 2>&1)) - staged, not committed"
     git add $settings
-    git commit -m 'chore: point hooks at the py launcher'
 }
+Ok 'Step 4 interpreter verified and settings.json consistent with it'
 
 # --- Done --------------------------------------------------------------------
 # Everything below prints BEFORE Claude starts, because once it does it owns the
@@ -168,6 +205,8 @@ Write-Host "  $target"
 Write-Host ''
 Write-Host '  Verified: core.hooksPath, pre-commit mode 100755, interpreter resolves.'
 Write-Host '  NOT verified (needs a live session): hook registration, permission rules.'
+Write-Host '  STAGED, NOT COMMITTED: the pre-commit mode bit, and settings.json if it'
+Write-Host '  was patched. Review with `git status` and commit them yourself.'
 Write-Host '  That is what the canary below is for.'
 Write-Host ''
 Write-Host '  TWO THINGS ONLY YOU CAN DO:' -ForegroundColor Yellow

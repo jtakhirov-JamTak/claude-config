@@ -16,7 +16,7 @@
 !/DECISIONS.md
 !/.gitattributes
 !/hooks/
-!/statusline.ps1
+!/statusline.py
 !/new-app.ps1
 !/powershell-profile.ps1
 !/sync-profile.ps1

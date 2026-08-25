@@ -1,7 +1,59 @@
 # Decisions — the config set itself
 
+**Framework freeze: if config/template commits exceed 1 per 5 app commits for two
+consecutive weeks without a verified P0/P1 incident, framework work stops.**
+
 Kept verbatim with the numbers that settled them, per the decisions rule in `CLAUDE.md`.
 Read this before re-attempting anything recorded as rejected. Newest first.
+
+### 2026-08-25 — P0 config pass
+
+One line per decision: what, why, and what would put it back.
+
+- **`/resume` renamed to `/resume-context`.** `/resume` is a Claude Code built-in (its
+  own `--help` names the "/resume picker"), so the authored command was shadowed. Put
+  back only if the built-in is retired.
+- **`session-context.md` is six fixed sections, overwritten whole.** Archiving, the
+  20-snapshot retention, category detection and the 14-day prune all assumed multiple
+  concurrent intents per repo; one-intent-per-session already rules that out, so they
+  were pure ceremony. Put back if a session ever legitimately needs two live intents.
+- **`/resume-context` keeps its verification step.** It is the only part that can turn
+  red — a restored context that is quietly wrong is worse than none. Never remove.
+- **Statusline is Python and prints context percentage only.** Measured 3×10 runs each,
+  same shell, on a payload gated through both parsers first: `statusline.ps1` **505
+  ms/render** (with its git-branch cache warm — its best case), `statusline.py` **97
+  ms/render**, against a bare `python -c pass` floor of **69 ms**. So 5.2× faster, ~408
+  ms saved per render, and only 28 ms of what remains is this script — the rest is
+  CPython startup, which is why the target was met but only by 3 ms and no further
+  optimisation was attempted. Model, cost, git branch, folder and the progress bar were
+  dropped. Put back any single field only when you say you missed it.
+  *The first measurement of this was wrong and is recorded here so the mistake is not
+  repeated: the sample payload contained `"C:\Users\..."`, which is invalid JSON, so both
+  scripts took their parse-failure path and PowerShell never made its git call. It read
+  424 ms vs 90 ms. Any timing harness for a stdin-parsing script must first assert the
+  fixture parses.*
+- **Delete/overwrite hard stop narrowed to a `git status` test.** The old rule fired on
+  every routine edit to tracked source, which git already makes reversible; it had no
+  incident behind it (`dc1ac75`, no ancestor). Put back if an ungated delete of a
+  tracked-and-clean file ever loses something that mattered.
+- **`env.example` is the canonical name; `.env.example` is blocked by design.**
+  `hooks/shell_guard.py` treats every `.env*` as secret-shaped, so a command file telling
+  you to maintain `.env.example` describes a file the guard will refuse to read. Fixed in
+  `deploy-check.md` and `worktree.md`. Do not reintroduce the dotted form in a new command.
+- **`/add-feature` deleted; `/add-*` routing removed from `CLAUDE.md`.** It was a router
+  over three commands that each already say what to run next. `add-table`,
+  `add-endpoint`, `add-page` and `add-webhook` are **kept for now and scheduled for
+  deletion once Session 2 verifies their knowledge has been extracted** — do not delete
+  them before that verification.
+- **`new-app.ps1` makes no commits.** It made two unrequested ones, against the standing
+  never-commit-unless-asked rule. The mode bit and any settings patch are left staged;
+  the `100755` check still verifies through the index, so nothing was weakened. Put back
+  never.
+- **`new-app.ps1` preflights the interpreter and template before creating the repo.** A
+  failure after `gh repo create` leaves a real GitHub repo behind. The settings *patch*
+  necessarily stays in Step 4 — it edits a file that does not exist until the clone.
+- **Auto-mode trust entries require two denials.** Recorded as a rule in `CLAUDE.md`; the
+  stale `autoMode` block is cleared by `claude auto-mode reset`, not by hand.
 
 ### 2026-08-23 — The scaffold lives in `new-app.ps1`; the command delegates to it
 
@@ -59,9 +111,18 @@ test.
 **Known limit, accepted:** the hook blocks recursive deletes, not single-file
 ones. Blocking every delete would fire constantly on temp files and would make
 the test suite's ALLOW column meaningless. A single-file delete is therefore
-governed by the `CLAUDE.md` hard stop behaviourally, not mechanically, outside a
-template-derived project. Re-open if a single-file delete ever destroys
-something that mattered.
+governed behaviourally, not mechanically, outside a template-derived project.
+Re-open if a single-file delete ever destroys something that mattered.
+
+**Amended 2026-08-25.** The `CLAUDE.md` hard stop this entry cited — "show me what
+something is before you delete or overwrite it" — no longer exists. The behavioural
+control is now the narrower clause that replaced it: *ask before deleting or overwriting
+any file that is untracked, or tracked with uncommitted changes*. That still covers this
+gap, because the single-file delete worth fearing is the one git cannot undo. Deletes of
+tracked-and-clean files are deliberately no longer gated. For the record, the original
+rule had no incident behind it — `git log -S` puts its birth at `dc1ac75` as a new line
+with no ancestor, and `FIX_LOG.md` contains no delete/overwrite entry. Do not go looking
+for one.
 
 ### 2026-08-23 — `hooks/stop-typecheck.ps1` stays dormant and unregistered
 

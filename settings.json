@@ -33,7 +33,7 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "powershell -NoProfile -ExecutionPolicy Bypass -File C:/Users/jtakh/.claude/statusline.ps1"
+    "command": "python C:/Users/jtakh/.claude/statusline.py"
   },
   "enabledPlugins": {
     "supabase@claude-plugins-official": true

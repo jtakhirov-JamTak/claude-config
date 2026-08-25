@@ -1,6 +1,6 @@
 ---
 name: add-endpoint
-description: Scaffold a new API route — schemas, handler order (origin→auth→rate-limit→validate→gate→idempotency→logic), raw+derived writes, PII-safe logging. Use for adding ONE backend endpoint. For a provider→server callback use /add-webhook; for a whole feature use /add-feature.
+description: Scaffold a new API route — schemas, handler order (origin→auth→rate-limit→validate→gate→idempotency→logic), raw+derived writes, PII-safe logging. Use for adding ONE backend endpoint. For a provider→server callback use /add-webhook. For a whole feature, run /add-table, /add-endpoint and /add-page in that order.
 ---
 
 Scaffold a new API endpoint. Description: $ARGUMENTS

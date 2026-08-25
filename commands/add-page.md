@@ -1,6 +1,6 @@
 ---
 name: add-page
-description: Scaffold a new UI page — route-group placement, mobile-first defaults, multi-step/wizard traps, error/empty states, nav entry. Use for adding ONE frontend page. For the backend it talks to use /add-endpoint; for a whole feature use /add-feature.
+description: Scaffold a new UI page — route-group placement, mobile-first defaults, multi-step/wizard traps, error/empty states, nav entry. Use for adding ONE frontend page. For the backend it talks to use /add-endpoint. For a whole feature, run /add-table, /add-endpoint and /add-page in that order.
 ---
 
 Scaffold a new page. Description: $ARGUMENTS

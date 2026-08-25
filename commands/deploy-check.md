@@ -61,7 +61,7 @@ Flag any migration not yet applied to the deploy target. Confirm explicitly befo
 
 ## Env var changes
 
-- New env vars referenced in code not in `.env.example`.
+- New env vars referenced in code not in `env.example`.
 - Env vars used as `process.env.X!` — runtime crash if absent. Verify presence in the deploy target.
 - Provider keys that may have rotated.
 
@@ -179,7 +179,7 @@ Pre-launch projects rarely have these and find out at 2am.
 
 ## Infrastructure
 
-- All env vars in `.env.example`. Production has them all set.
+- All env vars in `env.example`. Production has them all set.
 - Fresh-clone build succeeds clean.
 - DB migrations all applied to deploy target — flag any unpushed.
 - Production-grade email sender configured (not the auth provider's default-capped relay).

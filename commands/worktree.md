@@ -34,7 +34,7 @@ If a branch with that name already exists, fail loudly — don't silently check 
 
 These files are gitignored on purpose, but the new worktree won't be runnable without them. Copy from the source worktree:
 
-- `.env`, `.env.local`, `.env.development.local`, `.env.production.local`, and any other framework-specific env files in use (`.envrc`, `.env.example` stays in git — skip).
+- `.env`, `.env.local`, `.env.development.local`, `.env.production.local`, and any other framework-specific env files in use (`.envrc`, `env.example` stays in git — skip).
 - Any project-specific local config not in git (e.g. `supabase/.temp/`, `.vercel/`, `.firebase/`, `.netlify/`).
 
 For each: if it exists in the source, copy to the new worktree. List what was copied.

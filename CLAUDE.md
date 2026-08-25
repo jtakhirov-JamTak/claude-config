@@ -8,7 +8,16 @@ IMPORTANT: each of these is unrecoverable once broken.
 
 - **NEVER commit or push unless I ask.** No permission rule gates plain `git commit`
   or `git push`.
-- **YOU MUST show me what something is before you delete or overwrite it.**
+- **Never ask before editing, deleting, renaming, or refactoring tracked source as part
+  of an approved task** — git makes it reversible. Ask before:
+  - deleting or overwriting any file that is **untracked, or tracked with uncommitted
+    changes** — `git status` is the test, not a judgment about who created it;
+  - destructive git history operations;
+  - any operation that modifies existing production data or changes auth/RLS behaviour;
+  - irreversible external actions;
+  - anything involving money;
+  - files outside the project;
+  - materially changing an approved SPEC.
 - **NEVER delete data with history value** — archive it (`archived_at`). Only my explicit
   delete removes a row.
 - **NEVER discard my input when a request fails.** Preserve it so it can be resubmitted.
@@ -91,8 +100,10 @@ IMPORTANT: two failed fixes mean the diagnosis is wrong, not the fix.
   out CRLF and format checks fail on every file before you edit one.
 - Never work out of `C:\Users\jtakh`. Start in the project folder so its CLAUDE.md loads.
 - `~/.claude` is a git repo. Commit after changing anything tracked there.
+- Add an Auto-mode trust entry only after the same legitimate operation is denied twice.
+  Smallest possible entry.
 - `~/.claude/commands` holds the authored review and scaffolding set (`/review-changes`,
-  `/full-review`, `/grill`, `/deploy-check`, `/add-*`). When I ask in normal words for
+  `/full-review`, `/grill`, `/deploy-check`). When I ask in normal words for
   something one of them covers, invoke it as a skill instead of improvising. Conventions:
   `~/.claude/REVIEWER_CONVENTIONS.md`.
 - Read `~/.claude/PROJECTS.md` before judging risk in an unfamiliar repo. **`pure-eq` is

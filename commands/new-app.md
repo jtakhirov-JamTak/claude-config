@@ -1,6 +1,6 @@
 ---
 name: new-app
-description: Scaffold a new app from the agentic-template-v4 GitHub template by running ~/.claude/new-app.ps1. Use when starting a brand-new app. NOT adding a feature to an existing app (use /add-feature); NOT a second branch of current work (use /worktree).
+description: Scaffold a new app from the agentic-template-v4 GitHub template by running ~/.claude/new-app.ps1. Use when starting a brand-new app. NOT adding a feature to an existing app (use /add-table, /add-endpoint, /add-page); NOT a second branch of current work (use /worktree).
 ---
 
 Scaffold a new app from the template. App name: $ARGUMENTS
@@ -21,14 +21,20 @@ wrong from inside this session, where it would nest Claude inside Claude.
 
 Pass `-Public` through only if the human explicitly asked for a public repo.
 
-The script exits non-zero on any failure and does not half-scaffold. If it
-fails, report the `FAILED:` line as-is rather than trying to continue by hand.
+The script exits non-zero on any failure. It stops at the first failure and
+reports which stages completed. If it fails, report the `FAILED:` line and the
+`Completed:` list as-is rather than trying to continue by hand — that list is
+how you know whether a GitHub repo now exists.
 
-The script preflights the name locally and on GitHub, creates the repo from the
-template, wires `core.hooksPath`, sets and verifies the `100755` bit on
-`.githooks/pre-commit`, and checks that the interpreter the hooks invoke
-actually resolves — patching `settings.json` to `py` if that is what exists. It
-fails loudly on any of those; it does not half-succeed.
+Step 0 preflights everything that can be checked before anything is created:
+the name locally and on GitHub, the dev root, `gh` and `git`, that the template
+repo is reachable, and that the interpreter the hooks invoke actually resolves.
+Only then does it create the repo from the template, wire `core.hooksPath`, and
+set and verify the `100755` bit on `.githooks/pre-commit` — patching
+`settings.json` to `py` if that is the interpreter that exists.
+
+**The script makes no commits.** The mode bit and any `settings.json` patch are
+left staged. Tell the human to review with `git status` and commit them.
 
 ## Report
 
