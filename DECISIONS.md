@@ -91,6 +91,15 @@ One line per decision: what, why, and what would put it back.
   `add-endpoint`, `add-page` and `add-webhook` are **kept for now and scheduled for
   deletion once Session 2 verifies their knowledge has been extracted** — do not delete
   them before that verification.
+- **Gate satisfied; the four `/add-*` commands are deleted.** Their failure-preventing
+  rules now live in `agentic-template-v4` at `.claude/skills/engineering-conventions/SKILL.md`
+  (set_updated_at ordering, archived_at obligations, partial unique indexes, fail-loud
+  UNIQUE, RLS in the creating migration, the seven-step handler order, the webhook
+  raw-body → verify → parse → replay → dispatch → mutate → ack protocol) and
+  `.claude/rules/react-traps.md`; both verified present on `origin/main` at `f6fcd81`
+  before deleting, not merely committed locally. `commands/new-app.md` now points at
+  `/interview` feature mode instead. Recover from git if a rule turns out to have been
+  dropped in extraction.
 - **`new-app.ps1` makes no commits.** It made two unrequested ones, against the standing
   never-commit-unless-asked rule. The mode bit and any settings patch are left staged;
   the `100755` check still verifies through the index, so nothing was weakened. Put back

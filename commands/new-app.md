@@ -1,6 +1,6 @@
 ---
 name: new-app
-description: Scaffold a new app from the agentic-template-v4 GitHub template by running ~/.claude/new-app.ps1. Use when starting a brand-new app. NOT adding a feature to an existing app (use /add-table, /add-endpoint, /add-page); NOT a second branch of current work (use /worktree).
+description: Scaffold a new app from the agentic-template-v4 GitHub template by running ~/.claude/new-app.ps1. Use when starting a brand-new app. NOT adding a feature to an existing app (use /interview from inside that app — it detects feature mode from an existing docs/SPEC.md); NOT a second branch of current work (use /worktree).
 ---
 
 Scaffold a new app from the template. App name: $ARGUMENTS
