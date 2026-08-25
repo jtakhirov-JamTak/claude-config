@@ -6,6 +6,52 @@ consecutive weeks without a verified P0/P1 incident, framework work stops.**
 Kept verbatim with the numbers that settled them, per the decisions rule in `CLAUDE.md`.
 Read this before re-attempting anything recorded as rejected. Newest first.
 
+### 2026-08-25 — `shell_guard.py` judges operands, not payload
+
+**Decision:** payload — heredoc bodies, PowerShell here-string bodies — is removed before
+the command is parsed. Operands, including redirect targets, are not. `cat <<EOF > .env`
+still blocks; the body between the delimiters is never read as command text.
+
+**This reverses a documented limit.** The module docstring previously said: *"this hook
+sees a shell COMMAND STRING and treats all of it as commands. A heredoc that writes a file
+whose text happens to contain a blocked command will be blocked. Author files with the
+Write/Edit tools instead."* That was an accepted trade, not an oversight. It stopped being
+acceptable at three verified over-blocks in one session, two of which cost a full retry
+and one of which blocked a `git commit` because its **message** named a file.
+
+**Why not the narrower fixes.** Ignoring apostrophes would have left the filename case;
+allowing dot-env names in commit messages would have left the apostrophe case. Both are
+per-symptom exceptions for one shared cause, and each would have to be re-derived the next
+time payload text contained something rule-shaped. Narrowing the inspected surface fixes
+the class.
+
+**Rejected — stripping quoted `-m` values and `echo`/`printf` arguments.** Specified, then
+dropped on evidence: `git commit -m "it's done"`, `echo "it's fine"` and
+`printf "don't\n"` were all measured passing **before** any change — `strip_quoted()` and
+`normalize_git()` already covered them. `echo don't` unquoted does block, and correctly:
+real bash also errors on it, so fail-closed is the right answer. Adding the strip would
+have been dead code with a live risk, since `echo secret > .env` must keep blocking.
+
+**Found while fixing it, both pre-existing and both worse than the defect being fixed:**
+
+- **A newline was not a command separator.** `SEPARATORS` had `;`, `|`, `&&`, `||` and no
+  `\n`, so every token-based check — recursive delete, every git rule — saw only the first
+  line. `npm test\nrm -rf ./src` and `npm test\ngit reset --hard` were **allowed**. It
+  survived because the regex file rules use `[^;|&]*`, which crosses newlines, so the
+  `.env` cases still went red and nothing looked broken. Fixed here rather than deferred:
+  stripping heredocs makes multi-line commands parse instead of failing closed, which
+  turns a latent bypass into a reachable one.
+- **`tee` and `dd` name their output as a direct operand.** The write rule keyed on a
+  redirect, so `tee .env` and `dd of=.env` wrote secrets unblocked.
+
+**Verified:** 249/249 cases, 11/11 mutations turning exactly their named set red. The word
+boundary is proven load-bearing for the read rule only; on the write rule it is a
+consistency change with no constructible discriminating case, and no test claims otherwise.
+
+**Put back trigger:** none for the payload rule. If a heredoc body is ever the vehicle for
+something that actually executes, that is a new defect and needs its own entry — do not
+restore whole-string matching, which had a false-positive rate of three per session.
+
 ### 2026-08-25 — P0 config pass
 
 One line per decision: what, why, and what would put it back.
@@ -107,6 +153,14 @@ position in the line all stop mattering. Covers every repo including ones that
 do not exist yet. The template keeps its own copy so a scaffolded app stays
 self-contained; the two files are byte-identical and both carry the 87-case
 test.
+
+**Superseded 2026-08-24, recorded here 2026-08-25.** The template no longer keeps a
+copy. It was deleted because the two registrations both fired in template-derived
+repos and every shell call paid two Python processes for the same verdict — see the
+`FIX_LOG.md` entry "The shell guard ran twice per command in template-derived repos".
+The user-level hook is registered with an absolute path and covers the template too.
+**There is nothing to keep byte-identical; do not recreate the template copy.**
+Confirmed on disk: no `shell_guard.py` under `dev/agentic-template-v4`.
 
 **Known limit, accepted:** the hook blocks recursive deletes, not single-file
 ones. Blocking every delete would fire constantly on temp files and would make

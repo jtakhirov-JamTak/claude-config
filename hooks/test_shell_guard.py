@@ -367,6 +367,97 @@ CASES = [
     # The same commands outside the evaluator are ordinary work.
     ("Bash", "cat docs/PROGRESS.md", "", 0, "PROGRESS readable outside evaluator"),
     ("Bash", "cat docs/evals/eval-01.md", "", 0, "evals readable outside evaluator"),
+
+    # ==== C1: PAYLOAD vs OPERAND ==============================================
+    # Three verified over-blocks, all on text that is DATA rather than command.
+    # The guard read a heredoc body as if it were shell, so prose could either
+    # break the tokenizer (an apostrophe is an unterminated quote) or match a
+    # file rule (a filename mentioned in prose is not a file being opened).
+    #
+    # The distinction is operand vs payload: `cat <<EOF > .env` still writes
+    # .env, because the redirect target is an OPERAND of the command. The body
+    # between the delimiters never is.
+    ("Bash", "cat > f.md <<EOF\nthe step that earns this command's existence\nEOF",
+     "", 0, "C1: apostrophe in a heredoc body is not an unterminated quote"),
+    ("Bash", "cat > f.md <<'EOF'\nit doesn't matter\nEOF",
+     "", 0, "C1: apostrophe in a quoted-delimiter heredoc body"),
+    ("Bash", "cat > f.md <<-EOF\n\tit doesn't matter\n\tEOF",
+     "", 0, "C1: apostrophe in a <<- indented heredoc body"),
+    ("PowerShell", "$x = @'\nit doesn't matter\n'@",
+     "", 0, "C1: apostrophe in a PowerShell here-string"),
+    ("PowerShell", "$x = @\"\nit doesn't matter\n\"@",
+     "", 0, "C1: apostrophe in an expandable PowerShell here-string"),
+    # A commit message is payload too, by either delivery route.
+    ("Bash", 'git commit -m "maintain .env.example, not the dotted one"', "", 0,
+     "C1: a dot-env filename NAMED in a quoted -m message is text"),
+    ("Bash", "git commit -F - <<MSG\nmaintain .env.example, not the dotted one\nMSG",
+     "", 0, "C1: same message delivered by heredoc is also text"),
+    # THE ACTUAL FAILURE. The trigger was not `.env` at all: the verb
+    # alternation had no word boundary, so `head ` matched inside `ahead `,
+    # and `[^;|&]*` then reached across the newline to the filename.
+    ("Bash", "git commit -F - <<MSG\nchecks moved into Step 0, ahead of repo creation\n"
+     "- env.example is canonical, so maintain .env.example properly\nMSG",
+     "", 0, "C1: 'ahead ' must not match the read-verb 'head '"),
+
+    # ---- C1b: word boundaries on the READ-rule verbs -------------------------
+    # Same defect, reachable WITHOUT a heredoc, which is the point: these must
+    # stay bare commands. Wrapping them in a heredoc makes them pass because the
+    # body is stripped, so they would prove nothing about the boundary fix — a
+    # vacuous pass. Verified discriminating: each of these flips to exit 2 when
+    # the \b is removed from the read rule (mutation c1b-read-boundary).
+    #
+    # Only the READ rule is pinned here. The write rule also carries \b for
+    # consistency, but no discriminating case exists for it: that rule already
+    # requires the redirect TARGET to be a dot-env file, and blocking is correct
+    # whenever it is. Claiming a test for it would be a vacuous pass.
+    ("Bash", "echo ahead of .env.example", "", 0,
+     "C1b: 'ahead ' must not match the read-verb 'head '"),
+    ("Bash", "echo detail .env.example", "", 0,
+     "C1b: 'detail ' must not match 'tail '"),
+    ("Bash", "echo unless .env.example", "", 0,
+     "C1b: 'unless ' must not match 'less '"),
+    ("Bash", "echo furthermore .env.example", "", 0,
+     "C1b: 'furthermore ' must not match 'more '"),
+
+    # ---- C1d: a NEWLINE is a command separator ------------------------------
+    # Pre-existing bypass found by the C1c rows: SEPARATORS had no "\n", so
+    # every token-based check (recursive delete, all git rules) saw only the
+    # first line. The regex file rules were unaffected because their [^;|&]*
+    # crosses newlines, which is exactly why this survived — the .env cases
+    # still went red, so nothing looked broken.
+    ("Bash", "npm test\nrm -rf ./src", "", 2, "C1d: rm -rf on line 2 is a command"),
+    ("Bash", "npm test\ngit reset --hard", "", 2, "C1d: reset --hard on line 2"),
+    ("Bash", "npm test\ngit push --force", "", 2, "C1d: force push on line 2"),
+    ("PowerShell", "npm test\nRemove-Item -Recurse ./src", "", 2,
+     "C1d: ps recursive delete on line 2"),
+    ("Bash", "npm test\ngit restore src/app.ts", "", 2, "C1d: restore on line 2"),
+    # ...and an ordinary multi-line script is still ordinary.
+    ("Bash", "npm test\nnpm run build\ngit status", "", 0,
+     "C1d: multi-line ordinary work still allowed"),
+
+    # ---- C1c: the guard must NOT be weakened by any of the above -------------
+    # The redirect target is an operand, so the heredoc still writes the file.
+    ("Bash", "cat <<EOF > .env\nSECRET=1\nEOF", "", 2,
+     "C1c: heredoc writing .env still blocked (redirect target is an operand)"),
+    ("Bash", "cat <<'EOF' > .env\nSECRET=1\nEOF", "", 2,
+     "C1c: quoted-delimiter heredoc writing .env still blocked"),
+    ("Bash", "cat <<EOF >> .env.local\nSECRET=1\nEOF", "", 2,
+     "C1c: heredoc appending .env.local still blocked"),
+    # The body ends at the delimiter; a real command after it is still a command.
+    ("Bash", "cat <<EOF > notes.md\nharmless prose\nEOF\nrm -rf ./src", "", 2,
+     "C1c: real command AFTER the heredoc terminator still blocked"),
+    ("Bash", "cat <<EOF > notes.md\nharmless prose\nEOF\ncat .env", "", 2,
+     "C1c: real .env read after the heredoc terminator still blocked"),
+    # Word boundaries must not stop the verbs matching when they ARE the verb.
+    ("Bash", "head .env", "", 2, "C1c: real 'head .env' still blocked"),
+    ("Bash", "tail .env.local", "", 2, "C1c: real 'tail .env.local' still blocked"),
+    ("Bash", "less .env", "", 2, "C1c: real 'less .env' still blocked"),
+    ("Bash", "more .env", "", 2, "C1c: real 'more .env' still blocked"),
+    ("Bash", "grep X .env", "", 2, "C1c: real 'grep .env' still blocked"),
+    ("Bash", "tee .env < x", "", 2, "C1c: real 'tee .env' still blocked"),
+    ("Bash", "printf 'K=1' > .env", "", 2, "C1c: real 'printf > .env' still blocked"),
+    ("PowerShell", "$x = @'\nharmless\n'@ ; Get-Content .env", "", 2,
+     "C1c: real .env read after a PowerShell here-string still blocked"),
 ]
 
 # Labels that MUST turn red when git-global normalization is disabled, and
@@ -461,6 +552,9 @@ MUTATIONS = [
             "-- separator without --staged still blocked",
             "restore after && still blocked",
             "restore after ; still blocked, ps",
+            # C1d added newline splitting, so a restore on line 2 is now a
+            # command this check sees - and therefore one it must protect.
+            "C1d: restore on line 2",
         },
     ),
     (
@@ -492,6 +586,63 @@ MUTATIONS = [
         },
     ),
     (
+        "c1-payload-stripping",
+        "C1: heredoc / here-string bodies parsed as commands again",
+        "    raw = strip_ps_herestrings(raw) if powershell else strip_heredocs(raw)",
+        "    raw = raw",
+        {
+            "C1: apostrophe in a heredoc body is not an unterminated quote",
+            "C1: apostrophe in a quoted-delimiter heredoc body",
+            "C1: apostrophe in a <<- indented heredoc body",
+            "C1: apostrophe in a PowerShell here-string",
+            # NOT the expandable @"..."@ row. `@"` and `"@` form a BALANCED
+            # double-quote pair, so strip_quoted() already blanks that body and
+            # the case passes with or without here-string stripping. The literal
+            # @'...'@ form above does discriminate, because an apostrophe in the
+            # body makes the single-quote count odd and breaks the tokenizer.
+            # Listing the expandable row here would credit this fix with a catch
+            # it does not make.
+        },
+    ),
+    (
+        "c1b-read-boundary",
+        "C1b: word boundary removed from the .env READ rule",
+        '    (r"\\b(cat|less|more|head|tail|grep|cp|scp)\\b\\s+[^|;&]*" + ENVFILE + r"(\\.|$|\\s)",',
+        '    (r"(cat|less|more|head|tail|grep|cp|scp)\\s+[^|;&]*" + ENVFILE + r"(\\.|$|\\s)",',
+        {
+            "C1b: 'ahead ' must not match the read-verb 'head '",
+            "C1b: 'detail ' must not match 'tail '",
+            "C1b: 'unless ' must not match 'less '",
+            "C1b: 'furthermore ' must not match 'more '",
+        },
+    ),
+    (
+        "c1d-newline-separator",
+        "C1d: newline no longer separates commands (the pre-existing bypass)",
+        'SEPARATORS = ("&&", "||", "|", ";", "\\n")',
+        'SEPARATORS = ("&&", "||", "|", ";")',
+        {
+            "C1d: rm -rf on line 2 is a command",
+            "C1d: reset --hard on line 2",
+            "C1d: force push on line 2",
+            "C1d: ps recursive delete on line 2",
+            "C1d: restore on line 2",
+            "C1c: real command AFTER the heredoc terminator still blocked",
+            # NOT "real .env read after a PowerShell here-string": that one is
+            # separated by `;`, which already worked. Listing it here would
+            # credit newline splitting for a catch it does not make.
+        },
+    ),
+    (
+        "c1e-direct-operand-write",
+        "C1e: tee/dd direct-operand .env write rule removed",
+        '    (r"\\b(tee|dd)\\b[^;|&]*" + ENVFILE + r"(\\.|$|\\s|=)",',
+        '    (r"\\b(tee|dd)\\bZZZNOMATCH" + ENVFILE + r"(\\.|$|\\s|=)",',
+        {
+            "C1c: real 'tee .env' still blocked",
+        },
+    ),
+    (
         "b4-ps-recursive",
         "B4: the PowerShell recursive-delete flag scan disabled",
         '        if head == "remove-item":',
@@ -509,6 +660,7 @@ MUTATIONS = [
             "B4: -Recurse after -Path (deny prefix misses this)",
             "B4: recursive via alias rd",
             "B4: recursive via alias erase",
+            "C1d: ps recursive delete on line 2",
         },
     ),
 ]

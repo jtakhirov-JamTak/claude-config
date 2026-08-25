@@ -26,6 +26,12 @@
 # Machine-local backup of the pre-cleanup permission list — never track.
 settings.local.json.pre-cleanup
 
+# Python build artifacts. `!/hooks/` re-includes that whole directory, so a
+# stray `python -m py_compile` there produces files the allowlist would
+# otherwise track.
+__pycache__/
+*.pyc
+
 # --- Defense in depth: never track secrets or machine-local overrides, even if
 #     a rule above is ever widened. ---
 .credentials.json

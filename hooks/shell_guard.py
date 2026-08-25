@@ -39,9 +39,18 @@ there is NO LONGER a backstop for that: `isolation: worktree` was removed from
 the evaluator so it can see uncommitted work, so this hook and the agent-scoped
 Read hook are the containment.
 
-Known limit: this hook sees a shell COMMAND STRING and treats all of it as
-commands. A heredoc that writes a file whose text happens to contain a blocked
-command will be blocked. Author files with the Write/Edit tools instead.
+Payload vs operand: a command string carries two kinds of text. OPERANDS are
+part of the command — the verb, its flags, and the paths it opens, including a
+redirect target. PAYLOAD is data the command merely transports: a heredoc body,
+a PowerShell here-string, a quoted message. Payload is never executed and never
+names a file being opened, so matching command rules against it produces pure
+false positives — an apostrophe in prose read as an unterminated quote, a
+filename mentioned in a commit message read as a file being opened.
+
+So payload is removed before parsing, and only the operands are judged. The
+distinction is kept sharp on purpose: `cat <<EOF > .env` is still blocked,
+because the redirect target is an operand, and only the body between the
+delimiters is dropped.
 """
 import json
 import re
@@ -66,7 +75,12 @@ PS_ALIASES = {
 }
 
 QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
-SEPARATORS = ("&&", "||", "|", ";")
+# A NEWLINE separates commands in both shells. Leaving it out meant every
+# token-based check — recursive delete, every git rule — saw only the first line
+# of a multi-line command, so `npm test\nrm -rf ./src` was allowed. The regex
+# file rules were unaffected (their `[^;|&]*` crosses newlines), which is why the
+# gap survived: the .env cases still went red, so nothing looked broken.
+SEPARATORS = ("&&", "||", "|", ";", "\n")
 # A destructive command inside a substitution still runs.
 SUBST = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
 
@@ -149,6 +163,102 @@ def strip_comments(cmd):
                 break
             prev = ch
         out.append(line if cut is None else line[:cut])
+    return "\n".join(out)
+
+
+# --- Payload removal ---------------------------------------------------------
+# `<<WORD`, `<<-WORD`, `<<'WORD'`. `<<<` is a here-string with no body and is
+# deliberately not matched here.
+HEREDOC_OP = re.compile(r"<<-?\s*(?:(['\"])([^'\"]+)\1|([A-Za-z_][A-Za-z0-9_]*))")
+# PowerShell here-string opener: @' or @" as the last thing on the line.
+PS_HERE_OPEN = re.compile(r"@(['\"])[ \t]*$")
+
+
+def _heredoc_delims(line):
+    """-> [(delimiter, start, end)] for heredocs OPENED on this line.
+
+    Quote-aware: `echo "a << b"` opens nothing. Without that, a `<<` inside a
+    string would swallow the rest of the command as if it were a body.
+    """
+    found, inq, i, n = [], None, 0, len(line)
+    while i < n:
+        ch = line[i]
+        if inq:
+            if ch == inq:
+                inq = None
+            i += 1
+        elif ch in "'\"":
+            inq = ch
+            i += 1
+        elif line.startswith("<<<", i):
+            i += 3  # here-string: no body to skip
+        elif line.startswith("<<", i):
+            m = HEREDOC_OP.match(line, i)
+            if not m:
+                i += 2
+                continue
+            found.append((m.group(2) or m.group(3), m.start(), m.end()))
+            i = m.end()
+        else:
+            i += 1
+    return found
+
+
+def strip_heredocs(cmd):
+    """Drop heredoc BODIES, keep the operator line.
+
+    The body is payload: never executed, and never a path the command opens. The
+    line that introduces it is not — `cat <<EOF > .env` still names .env as a
+    redirect target, so the `<<EOF` token is removed and everything else on that
+    line survives to be judged.
+
+    An unterminated heredoc swallows the remainder, which matches the shell: a
+    body with no closing delimiter means the command never completes and nothing
+    after it runs.
+    """
+    lines = cmd.split("\n")
+    out, i = [], 0
+    while i < len(lines):
+        delims = _heredoc_delims(lines[i])
+        if not delims:
+            out.append(lines[i])
+            i += 1
+            continue
+        kept, prev = [], 0
+        for _d, start, end in delims:
+            kept.append(lines[i][prev:start])
+            prev = end
+        kept.append(lines[i][prev:])
+        out.append(" ".join(kept))
+        i += 1
+        for delim, _s, _e in delims:
+            while i < len(lines) and lines[i].strip() != delim:
+                i += 1
+            i += 1  # drop the terminator line itself
+    return "\n".join(out)
+
+
+def strip_ps_herestrings(cmd):
+    """PowerShell @'...'@ and @"..."@ bodies. Same rule as the bash heredoc.
+
+    Whatever follows the closing delimiter on its line is kept, so
+    `@'...'@ ; Remove-Item -Recurse x` is still judged.
+    """
+    lines = cmd.split("\n")
+    out, i = [], 0
+    while i < len(lines):
+        m = PS_HERE_OPEN.search(lines[i])
+        out.append(lines[i][:m.start()] if m else lines[i])
+        i += 1
+        if not m:
+            continue
+        close = m.group(1) + "@"
+        while i < len(lines) and not lines[i].lstrip().startswith(close):
+            i += 1
+        if i < len(lines):
+            tail = lines[i]
+            out.append(tail[tail.find(close) + len(close):])
+            i += 1
     return "\n".join(out)
 
 
@@ -401,22 +511,34 @@ GIT_RULES = [
 ]
 
 # --- Bash-only file rules ----------------------------------------------------
+# EVERY verb here is \b-anchored. Without that, the alternation matched inside
+# ordinary English words — `ahead ` contains `head `, `committee ` contains
+# `tee `, `unless ` contains `less `, `detail ` contains `tail ` — and since
+# `[^;|&]*` crosses newlines, any such word anywhere earlier in the command
+# reached forward to a filename mentioned later and blocked it. That is what
+# actually fired on a commit message naming a dot-env file; the filename was
+# never the trigger.
 BASH_RULES = [
     # NOTE: recursive `rm` is handled by check_recursive_delete(), not here.
     # A prefix rule cannot see `rm -fr`, `rm -r -f`, or an `rm` that is not the
     # first command in the line.
-    (r"(sed\s+-i|mv\s|rm\s|>\s*|tee\s)[^;|&]*" + MIGRATION_DIR,
+    (r"(\bsed\s+-i|\bmv\s|\brm\s|>\s*|\btee\s)[^;|&]*" + MIGRATION_DIR,
      "Modifying migration files via shell is blocked. Create a new migration."),
-    (r"(cat|echo|printf|tee)[^;|&]*(>>?|\|)\s*[^\s;|&]*" + ENVFILE + r"(\.|$|\s)",
+    (r"\b(cat|echo|printf|tee)\b[^;|&]*(>>?|\|)\s*[^\s;|&]*" + ENVFILE + r"(\.|$|\s)",
      "Writing .env files via shell is blocked. Use the platform's secret manager."),
-    (r"(cat|less|more|head|tail|grep|cp|scp)\s+[^|;&]*" + ENVFILE + r"(\.|$|\s)",
+    # `tee` and `dd` name their output file as a DIRECT operand, with no
+    # redirect for the rule above to key on: `tee .env` and `dd of=.env` both
+    # write the file and both were allowed.
+    (r"\b(tee|dd)\b[^;|&]*" + ENVFILE + r"(\.|$|\s|=)",
+     "Writing .env files via shell is blocked. Use the platform's secret manager."),
+    (r"\b(cat|less|more|head|tail|grep|cp|scp)\b\s+[^|;&]*" + ENVFILE + r"(\.|$|\s)",
      "Reading/copying .env files via shell is blocked."),
 ]
 
 # --- PowerShell-only file rules (matched AFTER alias canonicalization) -------
-PS_WRITE = (r"(set-content|add-content|out-file|new-item|remove-item|move-item|"
-            r"copy-item|rename-item|clear-content)")
-PS_READ = r"(get-content|select-string|copy-item|get-item)"
+PS_WRITE = (r"\b(set-content|add-content|out-file|new-item|remove-item|move-item|"
+            r"copy-item|rename-item|clear-content)\b")
+PS_READ = r"\b(get-content|select-string|copy-item|get-item)\b"
 
 PS_RULES = [
     # NOTE: Remove-Item is handled by check_recursive_delete(), which sees it
@@ -596,7 +718,13 @@ def main():
         sys.exit(0)
     # Comments are not commands. Removing them first stops an apostrophe in
     # prose from being read as an unterminated quote.
+    #
+    # Comments BEFORE heredocs, deliberately: a `#` comment may itself contain
+    # `<<`, and stripping heredocs first would read that as an opener and
+    # swallow the real commands after it.
     raw = strip_comments(raw)
+    # Payload is not command text. See the module docstring.
+    raw = strip_ps_herestrings(raw) if powershell else strip_heredocs(raw)
     if not raw.strip():
         sys.exit(0)
 

@@ -3,6 +3,55 @@
 Defects in this repository: the rules, commands, hooks, and permission config. Format
 per the fix-log rule in `CLAUDE.md`. Newest first.
 
+### 2026-08-25 — The shell guard read payload as command text, and a newline was not a separator
+
+**Problem:** three over-blocks in one session, none touching a `.env` file or deleting
+anything:
+
+1. `cat > f.md <<'EOF'` … `earns this command's existence` … `EOF` — blocked as
+   *unterminated quote*. The heredoc body was tokenized as shell, so one apostrophe in
+   prose made the quote count odd.
+2. The same, a second time, costing another retry.
+3. `git commit -F - <<MSG` … blocked as *"Reading/copying .env files via shell"*.
+
+Case 3 had a **second, independent cause** and the first diagnosis of it was wrong. The
+trigger was not the filename. The read rule was
+`(cat|less|more|head|tail|grep|cp|scp)\s+[^|;&]*\.env(\.|$|\s)` with **no word
+boundary**, so `head ` matched inside `ahead of repo creation`, and `[^|;&]*` — which
+crosses newlines — then reached forward to a dot-env filename mentioned eight lines later.
+Any of `ahead`, `detail`, `unless`, `furthermore`, `committee` does this. Control tested:
+the same message without such a word passes.
+
+**Found while fixing, both pre-existing and both more serious than the reported defect:**
+
+- **Newline was not in `SEPARATORS`.** Every token-based check saw only line 1.
+  `npm test\nrm -rf ./src` and `npm test\ngit reset --hard` **exited 0**. This hid because
+  the regex file rules span newlines, so `.env` cases still went red.
+- **`tee .env` and `dd of=.env` were allowed** — the write rule required a redirect, and
+  both name the output file as a direct operand.
+
+**Fix:** the guard now separates OPERAND from PAYLOAD. `strip_heredocs()` (quote-aware,
+handles `<<`, `<<-`, quoted delimiters, and skips `<<<` here-strings) and
+`strip_ps_herestrings()` remove bodies while keeping the operator line, so a redirect
+target stays an operand. `\n` added to `SEPARATORS`. Word boundaries on the file-rule
+verbs. A rule for direct-operand writers (`tee`, `dd`).
+
+**Regression test:** 31 new cases (249 total), and four new mutations. The BLOCK half is
+the load-bearing half: `cat <<EOF > .env`, a real command after the heredoc terminator,
+`head .env`, `tee .env`, and the two newline bypasses. Two mistakes were caught by the
+mutation harness while writing these and are recorded in the test file: the first
+word-boundary rows were wrapped in heredocs, so heredoc stripping alone made them pass and
+they proved nothing; and the expandable `@"…"@` row passes either way, because `@"` and
+`"@` are a balanced quote pair that `strip_quoted()` already blanks. Neither is claimed as
+protected. Concrete inputs that turn the suite red: `cat <<EOF > .env` exiting 0, or
+`echo ahead of .env.example` exiting 2.
+
+**Where found:** the three blocks happened during the previous session and were reported
+rather than worked around. **General lesson: a guard that inspects a command string must
+decide what in that string is a command.** Text a command carries is not text a command
+runs. The same confusion produced the `git restore` pathspec defect above — keying on the
+wrong axis of the input.
+
 ### 2026-08-25 — A benchmark fixture was invalid JSON, so both scripts were timed on their error path
 
 **Problem:** while replacing `statusline.ps1` with `statusline.py`, the before/after
