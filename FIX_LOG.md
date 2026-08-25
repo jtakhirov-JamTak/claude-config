@@ -3,6 +3,166 @@
 Defects in this repository: the rules, commands, hooks, and permission config. Format
 per the fix-log rule in `CLAUDE.md`. Newest first.
 
+### 2026-08-24 — The `git restore` rule was keyed on the pathspec and was wrong in both directions
+
+**Problem:** the rule was `git\s+restore\s+(--staged\s+|--worktree\s+)*[.*]`. `[.*]` is
+a CHARACTER CLASS, so it matched a path whose first character is a dot — not the
+whole-tree pathspec `.` it was meant to catch. Two failures, opposite signs:
+
+- **Over-block.** `git restore --staged .gitignore`, `--staged .claude/exceptions.md`,
+  `--staged .env.keep` were all blocked, though `--staged` only rewrites the index and
+  cannot lose a byte of uncommitted work. Hit for real while unstaging a file during
+  the B3 migration; every dotfile and every `.github/**` path was affected.
+- **Under-block.** `git restore src/app.ts` matched nothing and was **allowed**, and it
+  silently discards uncommitted edits to that file. Same for `--worktree src/app.ts`,
+  `-W src/app.ts`, and `-s HEAD~1 src/app.ts`. The guard blocked `git checkout -- file`
+  but let the exact equivalent through under the newer command name.
+
+The pathspec was never the safety axis. Which TREE the command writes is.
+
+**Fix:** removed the regex and added `check_git_restore()`, which reads the parsed
+tokens. `--staged` (or `-S`) with no `--worktree` is the safe form — the twin of
+`git reset HEAD <path>`, which B4 deliberately re-allowed — and is allowed for any
+path. Everything else writes the working copy and blocks, including the bare default,
+because restore with no tree flag IS `--worktree`. Token-based rather than regex
+because `GIT_RULES` run with `re.IGNORECASE`, which cannot distinguish restore's `-S`
+(staged, safe) from `-s` (`--source`, which overwrites the working copy from another
+commit). Combined short flags (`-SW`) and the `--` pathspec separator are handled.
+
+**Regression test:** 18 cases in `hooks/test_shell_guard.py` (213 total), both
+directions — 8 ALLOW (`--staged` on dotfiles, dotted dirs, ordinary paths, `.`, globs,
+`-S`, and with `--`) and 10 BLOCK (bare, dotfile without `--staged`, single ordinary
+file, explicit `--worktree`, `--staged --worktree`, `-W`, `-SW`, `-s`, `--` without
+`--staged`, and chained after `&&` / `;`). Two named-set mutations: `b4-restore-off`
+turns exactly the 13 restore BLOCK cases red, `b4-restore-staged-blind` re-creates the
+original dotfile over-block and turns exactly the 7 `--staged` ALLOW cases red.
+Verified live through the registered hook, not just in-process: in a throwaway repo,
+`git restore --staged .gitignore` ran and left the working-tree edit intact, while
+`git restore .gitignore` was refused.
+
+`gg -C restore` was removed from the `a1-git-globals` expected-red set: it still
+blocks, but via the token check rather than normalization, so it no longer goes red
+when normalization is disabled. Strictly more robust.
+
+**Where found:** hit while unstaging `.claude/exceptions.md` during the B3 migration.
+
+### 2026-08-24 — Every Edit/Write paid half a second to a formatter that usually did nothing
+
+**Problem:** `hooks/format-after-edit.ps1` was registered `PostToolUse` on
+`Edit|Write`, so every single edit launched a PowerShell process. Measured
+interleaved (n=10, to cancel machine drift): **528 ms median for a file it declined
+to format**, 853 ms in a project that does use Prettier, against a 253 ms
+bare-PowerShell floor. Of the five projects on this machine, exactly one has Prettier
+installed — so for four of them the hook spent half a second per edit to reach `exit 0`.
+The cost was unconditional; the benefit was not. It also formatted reversible
+in-progress work, which is the wrong boundary: formatting belongs where the result is
+about to be checked or shipped.
+
+**Fix:** Deleted the script and its `PostToolUse` registration from `settings.json`.
+`hooks` now contains `PreToolUse` only. Formatting is left to `npm run verify`
+(which `.githooks/pre-commit` runs) and to explicit `npm run format`.
+
+**Regression test:** Verified live in `dev/app-foundation`, the one project with
+Prettier: `npm run verify` begins with `format:check`, which exits 0 on the clean
+tree and **exits 1 on a deliberately unformatted file** — the concrete input that
+makes the check falsifiable rather than decorative. Working tree confirmed identical
+(`git status --porcelain`) before and after the probe.
+
+**Where found:** Handoff v2.2 B1; cost measured rather than assumed.
+
+### 2026-08-24 — The shell guard ran twice per command in template-derived repos
+
+**Problem:** `hooks/shell_guard.py` (user level, `Bash|PowerShell`) and
+`agentic-template-v4/scripts/hooks/shell_guard.py` (project level, same matcher) were
+byte-identical — sha256 `d50bafc230245794…`, and their suites `5bffed9e99041e1b…`.
+Both fired on every shell call inside the template, so each command paid two Python
+processes to compute the same verdict. The handoff's hot-path target is at most one
+security process per call.
+
+**Fix:** Deleted the template's copy, its suite, and the project `Bash|PowerShell`
+registration. The user-level guard is registered with an absolute path, so it covers
+every repo on this machine including the template. Verified by invoking it from the
+template working directory: destructive git forms blocked, `git status` allowed, and
+the evaluator allowlist still enforced there (`echo >`, `git log`,
+`cat docs/PROGRESS.md` and non-allowlisted binaries all blocked; `npm test` and
+`git status --porcelain` allowed).
+
+**The tradeoff, stated rather than buried:** this makes the template depend on a
+machine-level config it does not ship. A checkout elsewhere now has no shell guard —
+and because the evaluator's shell allowlist lives *inside* `shell_guard.py`, that
+evaluator would keep `tools: Bash` with nothing restricting it. Its read isolation is
+project-relative and survives; its shell isolation does not. Put-back trigger recorded
+in the template's `docs/DECISIONS.md`, `README.md`, and `evaluator.md`.
+
+**Regression test:** The surviving suite is `hooks/test_shell_guard.py` — 195 cases
+plus four named-set mutations, all green after the deletion. No test asserted the
+deleted registration existed (recorded as a gap in the template BACKLOG).
+
+**Where found:** Handoff v2.2 B2.
+
+### 2026-08-24 — The user-level shell guard missed every git global-option form
+
+**Problem:** `hooks/shell_guard.py` matched git commands as raw text, so it knew one
+spelling of each rule. Adding a global option before the subcommand walked straight
+past it. Measured against the shipped file, 11 of 13 destructive forms exited 0 —
+`git -C repo reset --hard`, `git -c color.ui=false reset --hard`,
+`git --work-tree=... checkout -- .`, `git -c core.hooksPath=... commit`,
+`GIT_CONFIG_*` prefixes, and the PowerShell and quoted-Windows-path variants of each.
+The `permissions.deny` rules in `settings.json` are prefix matchers and miss the same
+forms, so both layers were open at once. This guard covers every repo on this machine,
+so the blast radius was every repo on this machine.
+
+The same matching also fired on path TEXT: `--git-dir=/tmp/r/dotgit reset --hard` was
+blocked only because the string `dotgit reset --hard` contains the pattern, while
+`--git-dir=/srv/repo reset --hard` was allowed. False negative and false positive from
+one mechanism.
+
+**Fix:** Parse → normalize → match, with a purpose-built quote-aware tokenizer
+(`shlex` gets Windows paths wrong in `posix=False` and loses quoted-ness in
+`posix=True`; `.split()` fails worse). Full write-up in the template's
+`docs/FIX_LOG.md` — this file and
+`dev/agentic-template-v4/scripts/hooks/shell_guard.py` are kept byte-identical.
+
+While fixing it I introduced and then removed a second defect: failing closed on an
+unterminated quote also rejected any command containing an apostrophe inside a `#`
+comment. Comments are now stripped before parsing. Blocking legitimate work is a
+defect, not caution.
+
+**Regression test:** `hooks/test_shell_guard.py`, 172 cases both directions, plus
+`--mutate` asserting that disabling global-option lifting turns exactly 22 named cases
+red and moves nothing else.
+
+**Where found:** Reproduced against the shipped guard before editing it.
+
+### 2026-08-24 — `new-app.ps1` wrote settings.json with a BOM, and the check could not catch it
+
+**Problem:** The `py`-launcher patch step wrote `.claude/settings.json` with
+`Set-Content -Encoding utf8`. On PowerShell 5.1 (verified here: 5.1.26100.9168) that
+emits a UTF-8 BOM — `EF BB BF` — and so does `Out-File -Encoding utf8`. The step's own
+verification was `ConvertFrom-Json`, which **accepts** a BOM, so a scaffold could ship a
+BOM'd settings file and report success. `~/.claude/.gitignore` had the same BOM plus two
+em-dashes double-encoded through cp1252, which is what a BOM'd write looks like after a
+round trip.
+
+This machine's own `CLAUDE.md` was the source: it said "Write files with
+`-Encoding utf8`" — the exact instruction that causes the bug.
+
+**Fix:** Write through `[System.IO.File]::WriteAllText($fullPath, $text,
+(New-Object System.Text.UTF8Encoding($false)))`, using an absolute path because .NET
+resolves relative paths against the process directory rather than `$PWD`. Added a
+byte-level assertion (first three bytes ≠ `EF BB BF`) alongside the parse check, since
+parsing cleanly does not prove the encoding. Rewrote the `CLAUDE.md` guidance to say the
+opposite of what it said, and stripped the BOM and mojibake from `.gitignore`.
+
+**Regression test:** Probe comparing all three write paths — `Set-Content -Encoding
+utf8` → BOM, `Out-File -Encoding utf8` → BOM, `WriteAllText`+`UTF8Encoding($false)` →
+no BOM. Then the real patch step run against a copy of the template's settings.json:
+parses, no BOM, both hook commands rewritten. The check is falsifiable — it was run
+against a deliberately BOM'd file, which parses fine and fails the byte check.
+
+**Where found:** Handoff v2.2 A4. The premise was tested before being fixed; on
+PowerShell 7 it would not have reproduced.
+
 ### 2026-08-23 — `new-app` could never scaffold anything: a stderr redirect under EAP=Stop
 
 **Problem:** `new-app Compass` died in Step 0 with `NativeCommandError` from

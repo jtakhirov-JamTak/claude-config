@@ -77,8 +77,14 @@ IMPORTANT: two failed fixes mean the diagnosis is wrong, not the fix.
 ## This machine
 
 - PowerShell 5.1 is the primary shell: no `&&`, no `||`, no ternary — chain with `;` or
-  `if ($?) { ... }`. Write files with `-Encoding utf8`; a BOM breaks JSON and shell
-  parsers. Bash is available but takes POSIX syntax.
+  `if ($?) { ... }`. Bash is available but takes POSIX syntax.
+- PowerShell 5.1 `-Encoding utf8` writes a BOM. For source/config files, prefer
+  Claude Write/Edit tools. Do not use `Set-Content` or `Out-File` for settings/config
+  files unless encoding is explicitly safe — a BOM breaks JSON and shell parsers, and
+  `ConvertFrom-Json` accepts one, so a passing parse check does not prove it is absent.
+  The BOM-less path is
+  `[System.IO.File]::WriteAllText($fullPath, $text, (New-Object System.Text.UTF8Encoding($false)))`
+  with an absolute path (.NET resolves relative paths against the process directory, not `$PWD`).
 - `spawnSync` cannot launch Windows `.cmd` shims. Use `npx --no-install <cli>` with
   `shell: true` and surface `result.error`, or the script exits 0 having run nothing.
 - A new repo needs `.gitattributes` with `* text=auto eol=lf`, or Git for Windows checks

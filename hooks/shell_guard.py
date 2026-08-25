@@ -4,8 +4,23 @@
 Two enforcement modes:
 1. UNIVERSAL DENYLIST (all agents): destructive/bypass commands.
 2. EVALUATOR ALLOWLIST: when the hook fires inside the `evaluator` subagent
-   (agent_type/agent_name in hook input), the shell is restricted to read-only
-   inspection and test commands. Fail CLOSED for the evaluator.
+   (agent_type in hook input), the shell is restricted to read-only inspection
+   and test commands. Fail CLOSED for the evaluator.
+
+Git handling is PARSE -> NORMALIZE -> MATCH, not line-oriented regex, because
+the thing being protected against is a command CLASS, not a spelling. Adding
+`-C repo` to a destructive command does not make it a different command; a rule
+that only knows the bare spelling is bypassed by the global-option one. So every
+git segment is tokenized, its leading NAME=VALUE environment assignments and git
+global options (-C, -c, --git-dir, --work-tree, --config-env, ...) are lifted
+off, and the rules match the resulting `git <subcommand> ...` form. The lifted
+globals and env are then judged separately, because some of them (anything
+setting core.hooksPath) ARE the bypass rather than a detail of it.
+
+Regex over the raw line also produced FALSE positives: the old reset rule fired
+on the path TEXT in `--git-dir=/tmp/r/dotgit` while missing the same command
+with `--git-dir=/srv/repo`. Parsing removes both directions of that error, since
+path text is no longer read as if it were the command.
 
 Shell awareness: `tool_name` selects the parser. Bash and PowerShell differ in
 three ways that matter here:
@@ -17,15 +32,19 @@ three ways that matter here:
     past a rule.
 Git CLI syntax is identical in both shells, so the git rules are shared.
 
-Field caveat: agent identity arrives as `agent_type` (documented for hooks
-inside subagents) or `agent_name` (seen in some payloads). Both are checked.
-If neither is present, evaluator mode cannot engage - the evaluator's
-`isolation: worktree` checkout is the backstop. Verify field names on your
-Claude Code version before trusting allowlist mode.
+Field caveat: agent identity arrives as `agent_type`, the documented field for
+hooks firing inside a subagent. `agent_name` is also read because it has been
+seen in some payloads. If neither is present, evaluator mode cannot engage, and
+there is NO LONGER a backstop for that: `isolation: worktree` was removed from
+the evaluator so it can see uncommitted work, so this hook and the agent-scoped
+Read hook are the containment.
+
+Known limit: this hook sees a shell COMMAND STRING and treats all of it as
+commands. A heredoc that writes a file whose text happens to contain a blocked
+command will be blocked. Author files with the Write/Edit tools instead.
 """
 import json
 import re
-import shlex
 import sys
 
 # --- PowerShell alias -> canonical cmdlet (lowercased) -----------------------
@@ -47,74 +66,338 @@ PS_ALIASES = {
 }
 
 QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
-SEPARATORS = re.compile(r"\||;|&&|\|\|")
-SEP_CAPTURE = re.compile(r"(\|\||&&|\||;)")
+SEPARATORS = ("&&", "||", "|", ";")
+# A destructive command inside a substitution still runs.
+SUBST = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
 
 MIGRATION_DIR = r"(supabase/|prisma/|db/)?migrations/"
-# .env.example / .env.sample / .env.template are committed on purpose
-# (see .gitignore) and must stay readable; every other .env* is secret.
-ENVFILE = r"\.env(?!\.example|\.sample|\.template)"
+# EVERY `.env*` path is secret, with no exceptions to reason about. The
+# non-secret example file is `env.example` — no leading dot — which does not
+# contain the substring `.env` and so never matches this pattern in the first
+# place. That is the whole point of the name: the guard needs no carve-out, so
+# there is no carve-out to get out of step with write_guard.py or .gitignore.
+ENVFILE = r"\.env"
+
+ENV_ASSIGN = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$", re.S)
+PS_ENV_ASSIGN = re.compile(r"\$env:([A-Za-z_][A-Za-z0-9_]*)\s*=\s*['\"]?([^'\";|]*)", re.I)
+
+
+def block(msg):
+    print(msg, file=sys.stderr)
+    sys.exit(2)
+
+
+# --- Quote-aware lexing ------------------------------------------------------
+# Purpose-built rather than shlex, because BOTH stock modes get a case wrong
+# that this guard depends on:
+#   * posix=False splits `--git-dir="C:\p with spaces\x"` into three tokens (it
+#     only honours a quote that OPENS a token), which recreates the very bypass
+#     this parser exists to close.
+#   * posix=True strips the quotes, losing the quoted-ness needed to stop a
+#     string literal such as `-m "the -n flag"` from faking a flag.
+# Backslash is literal here: on Windows it is a path separator, not an escape.
+
+def tokenize(cmd):
+    """-> [(text, was_quoted), ...]. Raises ValueError on an unterminated quote."""
+    toks, buf = [], []
+    quoted = started = False
+    inq = None
+    for ch in cmd:
+        if inq:
+            if ch == inq:
+                inq = None
+            else:
+                buf.append(ch)
+            continue
+        if ch in "'\"":
+            inq, quoted, started = ch, True, True
+            continue
+        if ch.isspace():
+            if started:
+                toks.append(("".join(buf), quoted))
+                buf, quoted, started = [], False, False
+            continue
+        buf.append(ch)
+        started = True
+    if inq:
+        raise ValueError("unterminated quote")
+    if started:
+        toks.append(("".join(buf), quoted))
+    return toks
+
+
+def strip_comments(cmd):
+    """Drop `#` comments that start outside a quoted string.
+
+    Both shells treat `#` as a comment only at the start of a token, so `$#`
+    and `a#b` are left alone. Without this, an apostrophe inside a comment —
+    "the BOM'd file" — reads as an unterminated quote and the whole command is
+    rejected. Blocking legitimate work is a defect, not caution. A commented-out
+    command does not run, so nothing is lost by removing it before parsing.
+    """
+    out = []
+    for line in cmd.split("\n"):
+        inq, prev, cut = None, "", None
+        for i, ch in enumerate(line):
+            if inq:
+                if ch == inq:
+                    inq = None
+            elif ch in "'\"":
+                inq = ch
+            elif ch == "#" and (i == 0 or prev.isspace()):
+                cut = i
+                break
+            prev = ch
+        out.append(line if cut is None else line[:cut])
+    return "\n".join(out)
+
+
+def split_segments(cmd):
+    """Split on shell separators that are OUTSIDE quotes.
+
+    A plain regex split would cut `git commit -m "a|b"` in half and then fail to
+    parse either piece.
+    """
+    out, buf = [], []
+    inq = None
+    i, n = 0, len(cmd)
+    while i < n:
+        ch = cmd[i]
+        if inq:
+            buf.append(ch)
+            if ch == inq:
+                inq = None
+            i += 1
+            continue
+        if ch in "'\"":
+            inq = ch
+            buf.append(ch)
+            i += 1
+            continue
+        hit = next((s for s in SEPARATORS if cmd.startswith(s, i)), None)
+        if hit:
+            out.append("".join(buf))
+            buf = []
+            i += len(hit)
+            continue
+        buf.append(ch)
+        i += 1
+    out.append("".join(buf))
+    return [s for s in out if s.strip()]
+
+
+def expand_substitutions(cmd):
+    """Bodies of $(...) and backticks, recursively, as commands in their own right."""
+    found, seen, work = [], set(), [cmd]
+    while work:
+        for m in SUBST.finditer(work.pop()):
+            body = m.group(1) if m.group(1) is not None else m.group(2)
+            if body and body.strip() and body not in seen:
+                seen.add(body)
+                found.append(body)
+                work.append(body)
+    return found
 
 
 def strip_quoted(cmd):
     """Blank out quoted string bodies so flag and path matching cannot be fooled
-    by a literal such as:  git commit -m "add -n handling"  ."""
+    by a literal such as a commit message that names a flag."""
     return QUOTED.sub("''", cmd)
 
 
-def split_segments(cmd):
-    """PS 5.1 has no &&/||, but splitting on them is harmless and covers PS7."""
-    return [s for s in SEPARATORS.split(cmd) if s.strip()]
+def canon_ps(seg):
+    """Rewrite the first token of a segment to its canonical cmdlet name."""
+    stripped = seg.lstrip()
+    if not stripped:
+        return seg
+    pad = seg[: len(seg) - len(stripped)]
+    parts = stripped.split(None, 1)
+    head = parts[0].lower()
+    rest = (" " + parts[1]) if len(parts) > 1 else ""
+    return pad + PS_ALIASES.get(head, head) + rest
 
 
-def canon_ps(cmd):
-    """Rewrite the first token of every pipeline segment to its cmdlet name."""
-    out = []
-    for seg in SEP_CAPTURE.split(cmd):
-        if seg in ("|", ";", "&&", "||"):
-            out.append(seg)
+# --- Git parsing -------------------------------------------------------------
+# Global options accepted BEFORE the subcommand. Value-taking ones consume the
+# next token; the `--opt=value` spelling is handled generically.
+GIT_GLOBAL_VALUE_OPTS = {
+    "-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path",
+    "--config-env", "--super-prefix", "--attr-source",
+}
+# Options that stand alone. Anything unknown is treated as standing alone too,
+# and if that guess is wrong the subcommand check below fails CLOSED.
+GIT_GLOBAL_FLAGS = {
+    "-p", "-P", "--paginate", "--no-pager", "--bare", "--no-replace-objects",
+    "--literal-pathspecs", "--glob-pathspecs", "--noglob-pathspecs",
+    "--icase-pathspecs", "--no-optional-locks", "--no-lazy-fetch",
+    "--no-advice", "--html-path", "--man-path", "--info-path", "--version",
+    "-v", "--help", "-h",
+}
+# Options whose VALUE is free text. Blanking those values is what keeps a commit
+# message that NAMES a destructive command from reading as one, while a quoted
+# flag such as reset "--hard" still reads as the flag it is.
+GIT_MSG_OPTS = {"-m", "--message", "-F", "--file"}
+HOOKSPATH = re.compile(r"core\.hookspath", re.I)
+SUBCOMMAND = re.compile(r"[A-Za-z][A-Za-z0-9._-]*$")
+
+
+def parse_git(toks):
+    """-> (env, globals, rest) for a git command, else None."""
+    env, i = {}, 0
+    while i < len(toks):
+        m = ENV_ASSIGN.match(toks[i][0])
+        if not m:
+            break
+        env[m.group(1).upper()] = m.group(2)
+        i += 1
+    if i >= len(toks) or toks[i][0].lower() not in ("git", "git.exe"):
+        return None
+    i += 1
+    globs = []
+    while i < len(toks):
+        t = toks[i][0]
+        if not t.startswith("-"):
+            break
+        if t.startswith("--") and "=" in t:
+            globs.append(t)
+            i += 1
+        elif t in GIT_GLOBAL_VALUE_OPTS:
+            globs.append(t + "=" + (toks[i + 1][0] if i + 1 < len(toks) else ""))
+            i += 2
+        else:
+            globs.append(t)
+            i += 1
+    return env, globs, toks[i:]
+
+
+def normalize_git(rest):
+    """`git <subcommand> ...` with globals gone and free-text values blanked."""
+    out, blank_next = [], False
+    for text, _quoted in rest:
+        if blank_next:
+            out.append("''")
+            blank_next = False
+        elif text in GIT_MSG_OPTS:
+            out.append(text)
+            blank_next = True
+        elif (text.startswith("--") and "=" in text
+              and text.split("=", 1)[0] in GIT_MSG_OPTS):
+            out.append(text.split("=", 1)[0] + "=''")
+        else:
+            out.append(text)
+    return "git " + " ".join(out)
+
+
+def ambient_env(sources, powershell):
+    """Environment set EARLIER on the same command line.
+
+    `export GIT_CONFIG_KEY_0=core.hooksPath ; git commit` and the PowerShell
+    `$env:` spelling both set the variable for the git command that follows, so
+    they belong to that command even though they are a separate segment. Only
+    within one tool call: neither shell's variables survive to the next one.
+    """
+    env = {}
+    for src in sources:
+        if powershell:
+            for k, v in PS_ENV_ASSIGN.findall(src):
+                env[k.upper()] = v
             continue
-        stripped = seg.lstrip()
-        if not stripped:
-            out.append(seg)
-            continue
-        pad = seg[: len(seg) - len(stripped)]
-        parts = stripped.split(None, 1)
-        head = parts[0].lower()
-        rest = (" " + parts[1]) if len(parts) > 1 else ""
-        out.append(pad + PS_ALIASES.get(head, head) + rest)
-    return "".join(out)
+        for seg in split_segments(src):
+            try:
+                toks = tokenize(seg)
+            except ValueError:
+                continue
+            if not toks:
+                continue
+            start = 1 if toks[0][0].lower() in ("export", "set", "env") else 0
+            for t, _q in toks[start:]:
+                m = ENV_ASSIGN.match(t)
+                if not m:
+                    break
+                env[m.group(1).upper()] = m.group(2)
+    return env
+
+
+def check_git(toks, extra_env=None):
+    parsed = parse_git(toks)
+    if parsed is None:
+        return
+    env, globs, rest = parsed
+    if extra_env:
+        env = dict(extra_env, **env)
+
+    # core.hooksPath by ANY spelling is the bypass itself, whatever the
+    # subcommand: -c core.hooksPath=, --config-env=core.hooksPath=,
+    # GIT_CONFIG_KEY_n=core.hooksPath.
+    for g in globs:
+        if HOOKSPATH.search(g):
+            block("Blocked: setting core.hooksPath on the git command line "
+                  "repoints the hooks that verify the work. .githooks/pre-commit "
+                  "is a release control - fix the check instead.")
+    for k, v in env.items():
+        if HOOKSPATH.search(k) or HOOKSPATH.search(v):
+            block("Blocked: setting core.hooksPath through the environment "
+                  "repoints the hooks that verify the work. .githooks/pre-commit "
+                  "is a release control - fix the check instead.")
+
+    if not rest:
+        return  # bare `git`, `git --version` - nothing to police
+
+    sub = rest[0][0].lower()
+    if not SUBCOMMAND.match(sub):
+        # An unknown global consumed the subcommand slot. Fail CLOSED and say so,
+        # rather than matching rules against a string that is not a command.
+        block(f"Blocked: could not identify the git subcommand (read {sub!r}). "
+              f"The guard fails closed on git commands it cannot parse.")
+
+    # GIT_CONFIG_* in front of a commit can rewrite config - including the hooks
+    # path - for exactly that commit. Read-only subcommands keep it.
+    if sub == "commit" and any(k.startswith("GIT_CONFIG") for k in env):
+        block("Blocked: GIT_CONFIG_* in front of a commit can rewrite config "
+              "(core.hooksPath included) for that commit. Commit without it.")
+
+    # Case-sensitive, token-level: must run before the IGNORECASE rules below,
+    # which cannot tell restore's -S from -s.
+    check_git_restore(rest)
+
+    normalized = normalize_git(rest)
+    for pat, msg in GIT_RULES:
+        if re.search(pat, normalized, re.IGNORECASE):
+            block(f"Blocked: {msg}")
 
 
 # --- Rules shared by both shells (git CLI syntax is identical) ---------------
+# These match the NORMALIZED form, so each one covers every global-option
+# spelling of its command class automatically.
 GIT_RULES = [
     (r"git\s+commit\b[^;|&]*(--no-verify|\s-n\b)",
      "Bypassing commit verification is blocked. Fix the check instead."),
     # Only writes repoint the hooks. Reading the value is harmless, and
-    # /new-app step 2 depends on it — over-blocking a read trains workarounds.
+    # /new-app step 2 depends on it - over-blocking a read trains workarounds.
     (r"git\s+config\b[^;|&]*hooksPath\s+[^\s;|&]",
      "Repointing git hooks is blocked. .githooks/pre-commit is a release "
-     "control. Reading it (`git config --get core.hooksPath`) is fine."),
+     "control. Reading the value with --get is fine."),
     (r"git\s+config\b[^;|&]*(--unset|--unset-all|--replace-all|--add)\b[^;|&]*hooksPath",
      "Removing or rewriting the git hooks path is blocked. .githooks/pre-commit "
      "is a release control."),
-    # Every force form, not just `--force` before an explicit main/master:
-    # --force-with-lease and --force-if-includes rewrite history too, and
-    # `git push origin +main` is a force push spelled as a refspec.
+    # Every force form, not just the long one before an explicit main/master:
+    # --force-with-lease and --force-if-includes rewrite history too, and a
+    # leading-plus refspec is a force push spelled differently.
     (r"git\s+push\b[^;|&]*(--force\b|--force-with-lease|--force-if-includes|\s-f\b)",
-     "Force-pushing is blocked. It rewrites published history — do it yourself "
+     "Force-pushing is blocked. It rewrites published history - do it yourself "
      "if you mean it."),
     (r"git\s+push\b[^;|&]*\s\+[\w./-]+",
-     "That `+ref` refspec is a force push. Blocked — it rewrites published "
-     "history."),
+     "That refspec is a force push. Blocked - it rewrites published history."),
     (r"git\s+reset\s+--hard",
-     "git reset --hard is blocked. Show the human what would be discarded first."),
+     "Discarding the working tree with reset --hard is blocked. Show the human "
+     "what would be lost first."),
     (r"git\s+clean\s+-[a-zA-Z]*f",
-     "git clean -f is blocked. Show the human what would be deleted first."),
-    (r"git\s+(checkout|restore)\s+(--\s|\.\s*$|\*)",
+     "Forced clean is blocked. Show the human what would be deleted first."),
+    (r"git\s+checkout\s+(--\s|\.\s*$|\*)",
      "Discarding working-tree changes is blocked. Show the human first."),
-    (r"git\s+restore\s+(--staged\s+|--worktree\s+)*[.*]",
-     "git restore over the tree is blocked. Show the human what would be lost first."),
+    # `git restore` is NOT handled here - see check_git_restore(). A regex
+    # cannot decide it, because these rules run with re.IGNORECASE and restore's
+    # `-S` (staged, safe) is a different flag from `-s` (source, destructive).
 ]
 
 # --- Bash-only file rules ----------------------------------------------------
@@ -161,6 +444,9 @@ EVAL_ALLOWED_PS = {"npm", "npx", "node", "curl", "jq", "git", "get-content",
                    "start-sleep", "get-command", "compare-object",
                    "get-location", "split-path", "join-path"}
 EVAL_GIT_OK = {"status", "diff"}  # git log is forbidden by the isolation protocol
+# The evaluator keeps `cat`, so the agent-scoped Read hook is not enough on its
+# own - the same three paths have to be closed on the shell side too.
+EVAL_FORBIDDEN_PATHS = ("progress.md", "session-context.md", "evals/")
 
 EVAL_DENY_BASH = re.compile(
     r"(>>?|`|\$\(|\btee\b|\bsed\s+-i|\brm\b|\bmv\b|\bcp\b|\bchmod\b|\bchown\b|"
@@ -172,50 +458,96 @@ EVAL_DENY_PS = re.compile(
     r"\bnpm\s+(i|install|ci|add)\b)")
 
 
-def block(msg):
-    print(msg, file=sys.stderr)
-    sys.exit(2)
+def check_git_restore(rest):
+    """Judge `git restore` on WHICH TREE it writes, not on the pathspec shape.
+
+    `--staged` on its own rewrites the index only: the working copy is untouched,
+    nothing uncommitted can be lost, and it is the exact twin of
+    `git reset HEAD <path>`, which is allowed. Every other form overwrites the
+    working copy - including the bare default, because restore with no tree flag
+    IS `--worktree`.
+
+    The rule this replaces keyed on the pathspec instead, as
+    `(--staged\\s+|--worktree\\s+)*[.*]`, and got BOTH directions wrong. `[.*]` is
+    a CHARACTER CLASS, so it fired on any path whose first character is a dot -
+    `git restore --staged .gitignore` and `.claude/...` were blocked despite
+    being pure unstaging. Meanwhile `git restore src/app.ts`, which silently
+    discards uncommitted edits to that file, matched nothing and was allowed.
+
+    Token-based rather than regex because GIT_RULES run with re.IGNORECASE, and
+    restore's `-S` (staged) must not be confused with `-s` (source, which reads
+    from another commit and overwrites the working copy).
+    """
+    if not rest or rest[0][0].lower() != "restore":
+        return
+    staged = worktree = False
+    for text, _quoted in rest[1:]:
+        if text == "--":
+            break  # everything after `--` is a pathspec, not a flag
+        if text.startswith("--"):
+            name = text.split("=", 1)[0]
+            if name == "--staged":
+                staged = True
+            elif name == "--worktree":
+                worktree = True
+        elif text.startswith("-") and len(text) > 1:
+            # Short flags may be combined (-SW). Case matters: -S is staged,
+            # -s is --source and is NOT a safety marker.
+            if "S" in text[1:]:
+                staged = True
+            if "W" in text[1:]:
+                worktree = True
+
+    if worktree:
+        block("Blocked: `git restore --worktree` overwrites the working copy and "
+              "discards uncommitted changes. Show the human what would be lost "
+              "first. To unstage only, use `git restore --staged <path>`.")
+    if not staged:
+        block("Blocked: `git restore` without --staged writes the WORKING TREE "
+              "(that is the default), silently discarding uncommitted changes. "
+              "Show the human what would be lost first. To unstage, use "
+              "`git restore --staged <path>` or `git reset HEAD <path>` - both "
+              "are allowed, including for dotted paths like .gitignore.")
 
 
-def check_recursive_delete(cmd, powershell):
+def check_recursive_delete(toks, powershell):
     """Block recursive deletes wherever they appear in the line.
 
-    `permissions.deny` matches on a command PREFIX, so `Bash(rm -rf:*)` sees
-    `rm -rf x` and nothing else: not `rm -fr x`, not `rm -r -f x`, and not
-    `cd s ; rm -rf x`, where `rm` is not the first token. This walks every
-    segment and reads the flags, so arrangement and position stop mattering.
+    `permissions.deny` matches on a command PREFIX, so a prefix rule sees only
+    the exact flag spelling it names: not the reversed order, not the flags
+    split apart, and not a delete that is the second command on the line. This
+    reads the flags off the parsed tokens, so arrangement and position stop
+    mattering.
     """
-    for segment in split_segments(cmd):
-        toks = segment.split()
-        if not toks:
-            continue
-        head = toks[0].lower()
+    if not toks:
+        return
+    head = toks[0][0].lower()
 
-        if powershell:
-            # canon_ps already resolved rm/del/ri/rd/erase -> remove-item.
-            # -Recurse is the only -r* parameter Remove-Item takes, so any flag
-            # abbreviating to -r means recursive: -r, -rec, -Recurse:$true.
-            if head == "remove-item":
-                for tok in toks[1:]:
-                    if tok.lower().startswith("-r"):
-                        block("Blocked: recursive delete. Show the human what "
-                              "would be deleted first.")
-            continue
+    if powershell:
+        # canon_ps already resolved the aliases to remove-item. -Recurse is the
+        # only -r* parameter Remove-Item takes, so any flag abbreviating to -r
+        # means recursive.
+        if head == "remove-item":
+            for tok, _q in toks[1:]:
+                if tok.lower().startswith("-r"):
+                    block("Blocked: recursive delete. Show the human what "
+                          "would be deleted first.")
+        return
 
-        if head != "rm":
+    if head != "rm":
+        return
+    for tok, _q in toks[1:]:
+        if not tok.startswith("-"):
             continue
-        for tok in toks[1:]:
-            if not tok.startswith("-"):
-                continue
-            if tok == "--recursive" or tok == "-R":
-                block("Blocked: recursive delete. Show the human what would be "
-                      "deleted first.")
-            if tok.startswith("--"):
-                continue
-            # Combined short flags: -rf, -fr, -r, -Rf ...
-            if "r" in tok[1:] or "R" in tok[1:]:
-                block("Blocked: recursive delete. Show the human what would be "
-                      "deleted first.")
+        if tok in ("--recursive", "-R"):
+            block("Blocked: recursive delete. Show the human what would be "
+                  "deleted first.")
+        if tok.startswith("--"):
+            continue
+        # Combined short flags, in either order.
+        if "r" in tok[1:] or "R" in tok[1:]:
+            block("Blocked: recursive delete. Show the human what would be "
+                  "deleted first.")
 
 
 def check_evaluator(cmd, powershell):
@@ -225,29 +557,34 @@ def check_evaluator(cmd, powershell):
         block("Evaluator is read-only: redirection, file mutation, and installs "
               "are blocked. Inspect and test only; report findings instead of "
               "fixing.")
+    low = cmd.replace("\\", "/").lower()
+    for p in EVAL_FORBIDDEN_PATHS:
+        if p in low:
+            block("Evaluator context isolation: PROGRESS.md, session-context.md "
+                  "and prior docs/evals/ are off-limits. Grade against "
+                  "docs/SPEC.md and the running app only.")
     for segment in split_segments(cmd):
-        seg = segment.strip()
-        if not seg:
+        seg = canon_ps(segment) if powershell else segment
+        if not seg.strip():
             continue
-        if powershell:
-            toks = seg.split()
-        else:
-            try:
-                toks = shlex.split(seg)
-            except ValueError:
-                # Unbalanced quotes: fail CLOSED for the evaluator.
-                block("Evaluator: command could not be parsed safely; blocked.")
+        try:
+            toks = tokenize(seg)
+        except ValueError:
+            block("Evaluator: command could not be parsed safely; blocked.")
         if not toks:
             continue
-        head = toks[0].lower()
+        head = toks[0][0].lower()
         if head not in allowed:
             block(f"Evaluator shell allowlist: '{head}' is not permitted. "
                   f"Allowed: {', '.join(sorted(allowed))} (git: status/diff "
-                  f"only). Extend the list in scripts/hooks/shell_guard.py if a "
-                  f"read-only tool is missing.")
-        if head == "git" and (len(toks) < 2 or toks[1].lower() not in EVAL_GIT_OK):
-            block("Evaluator may only run `git status` / `git diff`. Git history "
-                  "and mutations are off-limits (context isolation).")
+                  f"only). Extend the list in shell_guard.py if a read-only "
+                  f"tool is missing.")
+        if head == "git":
+            parsed = parse_git(toks)
+            sub = parsed[2][0][0].lower() if parsed and parsed[2] else ""
+            if sub not in EVAL_GIT_OK:
+                block("Evaluator may only run status / diff. Git history and "
+                      "mutations are off-limits (context isolation).")
 
 
 def main():
@@ -257,24 +594,38 @@ def main():
     raw = (data.get("tool_input") or {}).get("command", "") or ""
     if not raw.strip():
         sys.exit(0)
+    # Comments are not commands. Removing them first stops an apostrophe in
+    # prose from being read as an unterminated quote.
+    raw = strip_comments(raw)
+    if not raw.strip():
+        sys.exit(0)
 
-    # Normalize for matching: canonical cmdlet names, quote-stripped so string
-    # literals cannot hide or fake a flag, and forward slashes so a Windows
-    # path cannot dodge a rule written with `/`.
-    norm = canon_ps(raw) if powershell else raw
-    probe = strip_quoted(norm).replace("\\", "/")
-
-    rules = GIT_RULES + (PS_RULES if powershell else BASH_RULES)
+    file_rules = PS_RULES if powershell else BASH_RULES
     flags = re.IGNORECASE if powershell else 0
-    for pat, msg in rules:
-        if re.search(pat, probe, flags):
-            block(f"Blocked: {msg}")
 
-    check_recursive_delete(probe, powershell)
+    # A command hidden in a substitution still runs, so its body is inspected as
+    # though it had been typed on a line of its own.
+    sources = [raw] + expand_substitutions(raw)
+    extra_env = ambient_env(sources, powershell)
+
+    for source in sources:
+        for segment in split_segments(source):
+            seg = canon_ps(segment) if powershell else segment
+            probe = strip_quoted(seg).replace("\\", "/")
+            for pat, msg in file_rules:
+                if re.search(pat, probe, flags):
+                    block(f"Blocked: {msg}")
+            try:
+                toks = tokenize(seg)
+            except ValueError:
+                block("Blocked: unterminated quote - the guard cannot parse this "
+                      "command, so it fails closed. Rewrite it and retry.")
+            check_recursive_delete(toks, powershell)
+            check_git(toks, extra_env)
 
     agent = (data.get("agent_type") or data.get("agent_name") or "").lower()
     if agent == "evaluator":
-        check_evaluator(norm, powershell)
+        check_evaluator(canon_ps(raw) if powershell else raw, powershell)
     sys.exit(0)
 
 

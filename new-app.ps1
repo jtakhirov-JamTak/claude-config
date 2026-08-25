@@ -6,7 +6,7 @@
 #
 # Run it in your own terminal, then launch `claude` INSIDE the new folder.
 # A session binds its project root at launch: project CLAUDE.md,
-# .claude/settings.json and the three hooks all resolve against that root.
+# .claude/settings.json and its hooks all resolve against that root.
 # `/cd` can rebind the root (documented), but whether hooks and permissions
 # follow it is NOT documented — so a fresh launch inside the app is the safe
 # call, not a mid-session cd.
@@ -117,7 +117,7 @@ Write-Host "  pre-commit mode = $mode"
 # --- Step 4: the interpreter the hooks call ---------------------------------
 Step 4 'Checking the Python the hooks invoke'
 
-# The three PreToolUse hooks invoke `python` by name. Hooks fail OPEN on their
+# The PreToolUse hooks invoke `python` by name. Hooks fail OPEN on their
 # own errors by design, so a missing interpreter means the guardrails are
 # silently decorative rather than loudly broken. This is the check that catches
 # it.
@@ -136,11 +136,25 @@ if ($python) {
     $settings = '.claude/settings.json'
     $raw = Get-Content $settings -Raw
     $patched = $raw -replace '"command":\s*"python"', '"command": "py"'
-    Set-Content -Path $settings -Value $patched -Encoding utf8 -NoNewline
+
+    # PS 5.1's `-Encoding utf8` writes a BOM, and a BOM in settings.json is a
+    # parser hazard. Write through .NET with BOM-less UTF-8 instead. .NET
+    # resolves relative paths against the PROCESS directory rather than $PWD,
+    # so the full path here is required, not decorative.
+    $settingsFull = (Resolve-Path $settings).Path
+    [System.IO.File]::WriteAllText($settingsFull, $patched,
+        (New-Object System.Text.UTF8Encoding($false)))
+
     try { Get-Content $settings -Raw | ConvertFrom-Json | Out-Null } catch { Fail 'Patching settings.json produced invalid JSON. Restore it and fix by hand.' }
+    # ConvertFrom-Json tolerates a BOM, so parsing cleanly does NOT prove the
+    # encoding is right. Check the bytes.
+    $bytes = [System.IO.File]::ReadAllBytes($settingsFull)
+    if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+        Fail 'settings.json was written with a UTF-8 BOM. It must be BOM-less.'
+    }
     $left = (Select-String -Path $settings -Pattern '"command": "python"' -AllMatches).Count
     if ($left -ne 0) { Fail "settings.json still has $left python entries." }
-    Write-Host "  patched, JSON still valid ($(py --version 2>&1))"
+    Write-Host "  patched, JSON valid, no BOM ($(py --version 2>&1))"
     git add $settings
     git commit -m 'chore: point hooks at the py launcher'
 }
