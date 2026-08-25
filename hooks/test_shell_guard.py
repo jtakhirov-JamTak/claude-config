@@ -322,6 +322,26 @@ CASES = [
     ("Bash", "git log --oneline", "evaluator", 2, "eval bash git log blocked"),
     ("Bash", "echo x > src/a.ts", "evaluator", 2, "eval bash redirect blocked"),
     ("Bash", "python -c 'x'", "evaluator", 2, "eval bash non-allowlisted"),
+    # ---- Step 0b: the evaluator shell self-probe -----------------------------
+    # evaluator.md tells the evaluator to run this VERBATIM as its shell probe.
+    # BLOCKED means shell containment is live and it continues; if it runs, the
+    # evaluator must abort with P0 HARNESS FAILURE. Keep this string in sync with
+    # the command in .claude/agents/evaluator.md -- the template's contract test
+    # asserts the agent file still names it.
+    ("Bash", "python -c \"print('evaluator shell probe')\"", "evaluator", 2,
+     "eval STEP 0b shell probe blocked"),
+    ("Bash", "python3 -c \"print('evaluator shell probe')\"", "evaluator", 2,
+     "eval STEP 0b probe blocked, python3 spelling"),
+    ("PowerShell", "python -c \"print('evaluator shell probe')\"", "evaluator", 2,
+     "eval STEP 0b shell probe blocked, ps"),
+    # The probe must be inert for everyone ELSE, or it is not a safe thing to
+    # instruct: outside the evaluator it is an ordinary print and must pass. This
+    # is also what proves the block above comes from the evaluator allowlist and
+    # not from some unrelated rule matching the string.
+    ("Bash", "python -c \"print('evaluator shell probe')\"", "", 0,
+     "eval STEP 0b probe is inert outside the evaluator"),
+    ("PowerShell", "python -c \"print('evaluator shell probe')\"", "", 0,
+     "eval STEP 0b probe inert outside the evaluator, ps"),
     # ---- evaluator allowlist, PowerShell ----
     ("PowerShell", "npm test", "evaluator", 0, "eval ps npm test"),
     ("PowerShell", "git status", "evaluator", 0, "eval ps git status"),
@@ -456,6 +476,19 @@ MUTATIONS = [
             "restore --staged . unstages all, working tree untouched",
             "restore --staged glob allowed",
             "restore --staged with -- separator allowed",
+        },
+    ),
+    (
+        "eval-shell-allowlist-off",
+        "evaluator shell allowlist disabled (the Step 0b SUCCEEDS branch)",
+        "        if head not in allowed:",
+        "        if False:",
+        {
+            "eval bash non-allowlisted",
+            "eval ps non-allowlisted",
+            "eval STEP 0b shell probe blocked",
+            "eval STEP 0b probe blocked, python3 spelling",
+            "eval STEP 0b shell probe blocked, ps",
         },
     ),
     (
