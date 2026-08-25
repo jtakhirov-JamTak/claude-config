@@ -2,6 +2,12 @@
 # Strategy: ignore EVERYTHING at the root by default, then re-include only the
 # authored skill set. This is safer than denylisting noise — a new runtime file
 # or cache dir can never accidentally get tracked.
+#
+# The repo is PRIVATE (made so 2026-08-25). That is what lets working context —
+# session-context.md, plans/ — be tracked at all: it carries project names,
+# in-flight state, and the paths where secrets live, which is fine in a private
+# repo and was not while this was public. If it is ever made public again,
+# re-ignore those two first and audit history before flipping.
 
 /*
 
@@ -22,6 +28,11 @@
 !/sync-profile.ps1
 !/settings.json
 !/.gitignore
+
+# --- Working context, so a fresh clone (or an AI reading the repo) sees what is
+#     actually in flight rather than only the rule set. Private repo only. ---
+!/session-context.md
+!/plans/
 
 # Machine-local backup of the pre-cleanup permission list — never track.
 settings.local.json.pre-cleanup
