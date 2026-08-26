@@ -6,6 +6,56 @@ consecutive weeks without a verified P0/P1 incident, framework work stops.**
 Kept verbatim with the numbers that settled them, per the decisions rule in `CLAUDE.md`.
 Read this before re-attempting anything recorded as rejected. Newest first.
 
+### 2026-08-25 — Control-plane denies are `Edit(path)` only, and the guard cannot protect its own loading
+
+**Decision:** the control-plane protection in `settings.json` is two rules, not six:
+
+```
+"Edit(~/.claude/hooks/shell_guard.py)",
+"Edit(~/.claude/settings.json)",
+```
+
+The `Write(path)` and `MultiEdit(path)` variants are dropped — applied by hand, because
+the `Edit(~/.claude/settings.json)` rule locks the agent out of its own control plane,
+which is the intended asymmetry and not a thing to work around. Current Claude Code
+routes all built-in file editing through `Edit(path)` rules; path-specific
+`Write`/`MultiEdit` rules are not consulted, so those four entries were dead config
+that read as coverage. **Do not re-add them** on the reasoning that "Write is a
+different tool" — that is the mistake this entry exists to stop.
+
+**Scope of the claim — I have not independently verified it.** It is the maintainer's
+determination, and it is consistent with what was actually measured here: the live
+probes confirmed `Edit` denied on both files, and the `Write`/`MultiEdit` entries were
+never exercised, because a Write test that slipped through would have destroyed the
+guard. So there is no evidence they ever did anything. **Put back** if a `Write` or
+`MultiEdit` tool call is ever observed reaching either protected file.
+
+Unchanged and not to be confused with this: `Edit|Write|MultiEdit` as a **hook
+matcher** string (the project's `write_guard.py` registration) is a different
+mechanism and is still correct.
+
+**Residual limitation, accepted rather than papered over: the guard cannot fail closed
+on its own failure to load.** `shell_guard.py` exits 2 on any exception raised while it
+runs, so a runtime fault blocks — that is the fix that closed the observed
+`NameError`-exits-0 defect. It cannot cover the earlier moment. A syntax error, a
+missing interpreter, or an unreadable file means Python never executes the module, the
+hook exits non-zero without ever reaching the handler, and Claude Code treats that as a
+non-blocking error. Catching this from inside the file is impossible in principle: a
+file that will not parse cannot run the code that would catch its own parse failure.
+This was measured once during the fix in a related form — module-body work faulted at
+import time and exited 1 with the command allowed, which is why the control-plane set is
+now resolved lazily inside a function. That moved everything catchable into the handler;
+what remains is only the uncatchable class.
+
+A wrapper process was considered and **rejected**: it would be a second hook to keep
+correct, on the hot path of every shell call, guarding against a failure mode that has
+never actually occurred here.
+
+**PUT-BACK TRIGGER:** one confirmed instance of a prohibited command proceeding because
+the guard failed to load. Not a suspicion and not a near miss — one command that the
+rules forbid, observed to have run, with the guard's failure to start as the cause. At
+that point add the wrapper, or move the check to a layer that cannot be skipped.
+
 ### 2026-08-25 — `shell_guard.py` judges operands, not payload
 
 **Decision:** payload — heredoc bodies, PowerShell here-string bodies — is removed before
