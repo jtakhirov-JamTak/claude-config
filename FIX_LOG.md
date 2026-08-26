@@ -3,6 +3,59 @@
 Defects in this repository: the rules, commands, hooks, and permission config. Format
 per the fix-log rule in `CLAUDE.md`. Newest first.
 
+### 2026-08-25 — The guard failed open on its own bugs, and did not protect its own control plane
+
+**Problem:** two false-green paths, one of them already observed in the wild.
+
+1. **Fail-open on internal error.** `check_governance()` referenced `os` without
+   importing it. The `NameError` reached the outer handler, which printed
+   `shell_guard hook error (allowed)` and **exited 0** — so the guard waved through
+   every command it was supposed to be checking, while this suite stayed green on all
+   its other cases. A guard that could not run has not decided a command is safe; it
+   has not decided anything.
+2. **The control plane was unprotected.** `~/.claude/hooks/shell_guard.py` and
+   `~/.claude/settings.json` decide whether any rule in this guard runs at all, and
+   both were freely writable — by the file-edit tools and from the shell. Every other
+   rule here was one `cp` away from being switched off.
+
+**Fix:**
+
+1. The outer handler now exits **2** with a message saying the guard itself
+   malfunctioned and needs repair, plus the traceback. One consequence is deliberate:
+   while the guard is broken, *every* shell command is refused. That is the intended
+   failure mode — the repair path is the file-edit tools, which this guard does not
+   gate, and the message says so. The control-plane set is resolved **lazily** rather
+   than in the module body, and that is load-bearing: the first version computed it at
+   import time, where a fault exits 1 (non-blocking) before the handler exists.
+   Measured, not assumed — the induced failure exited 1 and the command was allowed
+   until that constant moved inside a function.
+2. `check_control_plane()` blocks shell mutation of exactly those two files, reusing
+   the `write_targets()` helper factored out of `check_governance()`. Paths are
+   resolved before comparison, so `~`, `$HOME`, `%USERPROFILE%` and a plain absolute
+   path are all the same file. Only a write *destination* counts, so reads,
+   `git diff`, `git add`, a commit message naming the file, and copying a protected
+   file **out** to a backup all stay allowed. `permissions.deny` in `settings.json`
+   covers the file-edit route to the same two files.
+
+**Scope, deliberately narrow:** two files, not `hooks/`. `write_guard.py` sits in the
+same directory and is not covered, because nothing has shown it needs to be.
+
+**The invariant, stated honestly — this is not OS-level protection.** Claude's
+built-in file-edit tools and recognized/common shell mutation routes are blocked from
+modifying the machine-local guard control plane. Arbitrary subprocess file writes
+remain outside this policy-level protection unless OS sandboxing enforces them.
+
+**Regression test:** `test_shell_guard.py`, suite 276 → 292. Nine D2 BLOCK cases
+across both shells (`cp`, `>`, `rm`, `mv`, `sed -i`, `tee`, `$HOME` spelling,
+`Set-Content`, `Remove-Item`) and seven D2 ALLOW cases pinning the other direction
+(read, `git diff`, `git add`, commit message, copy-out, the sibling `write_guard.py`,
+an ordinary write elsewhere). Mutation `d2-control-plane-off` asserts exactly those
+nine turn red with no collateral. A separate `failclosed()` block induces both defect
+shapes — the missing import, and a raise inside a check — against a probe command the
+intact guard allows, and asserts exit 2 plus the guard-at-fault message. Verified
+falsifiable: reverting only the handler to `sys.exit(0)` turns exactly those two
+checks red and the suite exits 1.
+
 ### 2026-08-25 — The shell guard read payload as command text, and a newline was not a separator
 
 **Problem:** three over-blocks in one session, none touching a `.env` file or deleting

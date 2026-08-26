@@ -458,7 +458,103 @@ CASES = [
     ("Bash", "printf 'K=1' > .env", "", 2, "C1c: real 'printf > .env' still blocked"),
     ("PowerShell", "$x = @'\nharmless\n'@ ; Get-Content .env", "", 2,
      "C1c: real .env read after a PowerShell here-string still blocked"),
+
+    # ---- D1: project governance is not shell-writable ----
+    # write_guard.py only ever sees Edit|Write|MultiEdit. Every form below
+    # rewrote or deleted governance through the shell while CLAUDE.md claimed
+    # those files "change only via the human"; all were measured at exit 0
+    # before check_governance existed.
+    ("Bash", "cp draft.md CLAUDE.md", "", 2, "D1 BLOCK: cp onto CLAUDE.md"),
+    ("Bash", "sed -i 's/a/b/' CLAUDE.md", "", 2, "D1 BLOCK: sed -i CLAUDE.md"),
+    ("Bash", "echo hi > CLAUDE.md", "", 2, "D1 BLOCK: redirect onto CLAUDE.md"),
+    ("Bash", "echo hi >CLAUDE.md", "", 2, "D1 BLOCK: glued redirect"),
+    ("Bash", "cat foo > .claude/settings.json", "", 2, "D1 BLOCK: redirect into .claude"),
+    ("Bash", "cp foo .githooks/pre-commit", "", 2, "D1 BLOCK: cp into .githooks"),
+    ("Bash", "rm CLAUDE.md", "", 2, "D1 BLOCK: rm CLAUDE.md"),
+    ("Bash", "mv foo.md CLAUDE.md", "", 2, "D1 BLOCK: mv onto CLAUDE.md"),
+    ("Bash", "tee CLAUDE.md < foo", "", 2, "D1 BLOCK: tee CLAUDE.md"),
+    ("Bash", 'cp draft.md "CLAUDE.md"', "", 2, "D1 BLOCK: quoted destination"),
+    ("Bash", "npm test && cp x CLAUDE.md", "", 2, "D1 BLOCK: second segment"),
+    ("Bash", "dd if=foo of=CLAUDE.md", "", 2, "D1 BLOCK: dd of="),
+    ("PowerShell", "Copy-Item draft.md CLAUDE.md", "", 2, "D1 BLOCK: ps copy-item"),
+    ("PowerShell", "Set-Content -Path CLAUDE.md -Value x", "", 2, "D1 BLOCK: ps set-content"),
+    ("PowerShell", "Remove-Item .claude/settings.json", "", 2, "D1 BLOCK: ps remove-item"),
+    ("PowerShell", "'x' > CLAUDE.md", "", 2, "D1 BLOCK: ps redirect"),
+
+    # The other direction, and the more dangerous one. Reading governance is the
+    # normal case; `docs/proposed/CLAUDE.md` is the sanctioned way to draft a
+    # change to it; a commit message may name the file it changed. Over-blocking
+    # any of these would be worse than the hole it closes.
+    ("Bash", "cat CLAUDE.md", "", 0, "D1 ALLOW: read CLAUDE.md"),
+    ("Bash", "grep -n rule CLAUDE.md", "", 0, "D1 ALLOW: grep CLAUDE.md"),
+    ("Bash", "cp CLAUDE.md /tmp/backup.md", "", 0, "D1 ALLOW: copy governance out"),
+    ("Bash", "cp docs/proposed/CLAUDE.md docs/x.md", "", 0,
+     "D1 ALLOW: proposal is not governance"),
+    ("Bash", "rm docs/proposed/CLAUDE.md", "", 0, "D1 ALLOW: rm a proposal"),
+    ("Bash", "echo hi > docs/CLAUDE.md", "", 0, "D1 ALLOW: nested CLAUDE.md"),
+    ("Bash", "git add CLAUDE.md", "", 0, "D1 ALLOW: stage a human-applied change"),
+    ("Bash", "git commit -m 'docs: update CLAUDE.md'", "", 0,
+     "D1 ALLOW: commit message names it"),
+    ("Bash", "ls .claude/", "", 0, "D1 ALLOW: list .claude"),
+    ("Bash", "cp x .claudette/y", "", 0, "D1 ALLOW: near-miss directory name"),
+    ("PowerShell", "Get-Content CLAUDE.md", "", 0, "D1 ALLOW: ps read"),
+
+    # ---- D2: the guard's own control plane ----
+    # This guard and the settings that register it decide whether any rule above
+    # runs at all, so a write to either disables the lot. Exactly two files:
+    # write_guard.py sits in the same directory and is deliberately NOT covered,
+    # because nothing has shown it needs to be.
+    ("Bash", "cp evil.py ~/.claude/hooks/shell_guard.py", "", 2, "D2 BLOCK: cp onto the guard"),
+    ("Bash", "echo x > ~/.claude/settings.json", "", 2, "D2 BLOCK: redirect onto settings"),
+    ("Bash", "rm ~/.claude/hooks/shell_guard.py", "", 2, "D2 BLOCK: rm the guard"),
+    ("Bash", "mv x ~/.claude/settings.json", "", 2, "D2 BLOCK: mv onto settings"),
+    ("Bash", "sed -i 's/a/b/' ~/.claude/hooks/shell_guard.py", "", 2, "D2 BLOCK: sed -i the guard"),
+    ("Bash", "tee ~/.claude/settings.json < x", "", 2, "D2 BLOCK: tee settings"),
+    ("Bash", "cp evil.py $HOME/.claude/settings.json", "", 2, "D2 BLOCK: $HOME spelling"),
+    ("PowerShell", "Set-Content -Path ~/.claude/settings.json -Value x", "", 2,
+     "D2 BLOCK: ps set-content settings"),
+    ("PowerShell", "Remove-Item ~/.claude/hooks/shell_guard.py", "", 2,
+     "D2 BLOCK: ps remove-item the guard"),
+
+    # Reads and references stay allowed. Over-blocking here would make the guard
+    # unmaintainable and unreviewable.
+    ("Bash", "cat ~/.claude/hooks/shell_guard.py", "", 0, "D2 ALLOW: read the guard"),
+    ("Bash", "git diff ~/.claude/hooks/shell_guard.py", "", 0, "D2 ALLOW: git diff"),
+    ("Bash", "git add ~/.claude/settings.json", "", 0, "D2 ALLOW: git add"),
+    ("Bash", "git commit -m 'fix ~/.claude/settings.json guard'", "", 0,
+     "D2 ALLOW: filename in a commit message"),
+    ("Bash", "cp ~/.claude/hooks/shell_guard.py /tmp/backup.py", "", 0,
+     "D2 ALLOW: copy the guard OUT to a backup"),
+    ("Bash", "cp x ~/.claude/hooks/write_guard.py", "", 0,
+     "D2 ALLOW: a sibling hook is not the control plane"),
+    ("Bash", "echo hi > /tmp/ordinary.txt", "", 0, "D2 ALLOW: ordinary write elsewhere"),
 ]
+
+# Disabling check_governance must turn EXACTLY the D1 BLOCK cases red. A D1
+# ALLOW case moving would mean the new check is over-blocking; a D1 BLOCK case
+# staying green would mean something else was already catching it and the rule
+# proves nothing.
+D1_EXPECT_RED = {
+    "D1 BLOCK: cp onto CLAUDE.md", "D1 BLOCK: sed -i CLAUDE.md",
+    "D1 BLOCK: redirect onto CLAUDE.md", "D1 BLOCK: glued redirect",
+    "D1 BLOCK: redirect into .claude", "D1 BLOCK: cp into .githooks",
+    "D1 BLOCK: rm CLAUDE.md", "D1 BLOCK: mv onto CLAUDE.md",
+    "D1 BLOCK: tee CLAUDE.md", "D1 BLOCK: quoted destination",
+    "D1 BLOCK: second segment", "D1 BLOCK: dd of=",
+    "D1 BLOCK: ps copy-item", "D1 BLOCK: ps set-content",
+    "D1 BLOCK: ps remove-item", "D1 BLOCK: ps redirect",
+}
+
+# Same contract for the control-plane check. It is a separate call site from
+# check_governance precisely so each one can be disabled independently and shown
+# to be what catches its own cases.
+D2_EXPECT_RED = {
+    "D2 BLOCK: cp onto the guard", "D2 BLOCK: redirect onto settings",
+    "D2 BLOCK: rm the guard", "D2 BLOCK: mv onto settings",
+    "D2 BLOCK: sed -i the guard", "D2 BLOCK: tee settings",
+    "D2 BLOCK: $HOME spelling", "D2 BLOCK: ps set-content settings",
+    "D2 BLOCK: ps remove-item the guard",
+}
 
 # Labels that MUST turn red when git-global normalization is disabled, and
 # nothing else may move. Anything blocked by a different mechanism (the
@@ -571,6 +667,20 @@ MUTATIONS = [
             "restore --staged glob allowed",
             "restore --staged with -- separator allowed",
         },
+    ),
+    (
+        "d1-governance-off",
+        "D1: check_governance disabled (restores the shell bypass of write_guard)",
+        "            check_governance(toks, powershell)",
+        "            pass  # check_governance disabled",
+        D1_EXPECT_RED,
+    ),
+    (
+        "d2-control-plane-off",
+        "D2: check_control_plane disabled (the guard stops protecting itself)",
+        "            check_control_plane(toks, powershell)",
+        "            pass  # check_control_plane disabled",
+        D2_EXPECT_RED,
     ),
     (
         "eval-shell-allowlist-off",
@@ -759,5 +869,71 @@ def mutate():
     return rc
 
 
+# --- Fail-closed contract ----------------------------------------------------
+# The outer handler used to print "hook error (allowed)" and exit 0. That is a
+# false green with evidence behind it, not a hypothetical: check_governance()
+# referenced `os` without importing it, the NameError landed in that handler,
+# and the guard waved through every command it was meant to check while this
+# suite stayed green on all its other cases. A guard that could not run has not
+# decided a command is safe - it has not decided anything.
+#
+# The probe command must be one the intact guard ALLOWS and that reaches the
+# code the mutation breaks. `cp a.txt b.txt` is both: ordinary, permitted, and
+# it resolves a write destination, which is exactly what the real defect hit.
+FAILCLOSED_CMD = "cp a.txt b.txt"
+
+FAILCLOSED_BREAKS = [
+    # The defect as it actually occurred: a name the guard uses goes missing.
+    ("missing import (the observed defect)", "import os\n", ""),
+    # An arbitrary internal fault anywhere in a check.
+    ("exception raised inside a check",
+     "def check_governance(toks, powershell):\n",
+     "def check_governance(toks, powershell):\n    raise RuntimeError('induced')\n"),
+]
+
+
+def failclosed():
+    src = open(GUARD, encoding="utf-8").read()
+    checks, failures = [], []
+
+    def check(label, ok):
+        checks.append(label)
+        if not ok:
+            failures.append(label)
+
+    # Without this the rest proves nothing: if the intact guard already blocked
+    # the probe, "blocked" under mutation would not mean the handler did it.
+    rc, _err = run(GUARD, "Bash", FAILCLOSED_CMD, "")
+    check("intact guard ALLOWS the probe command", rc == 0)
+
+    for label, anchor, patch in FAILCLOSED_BREAKS:
+        if src.count(anchor) < 1:
+            check(f"break applies: {label}", False)
+            continue
+        fd, mutant = tempfile.mkstemp(suffix="_failclosed.py", text=True)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write(src.replace(anchor, patch, 1))
+            rc, err = run(mutant, "Bash", FAILCLOSED_CMD, "")
+        finally:
+            os.unlink(mutant)
+        check(f"broken guard BLOCKS, exit 2 ({label})", rc == 2)
+        check(f"message names the guard as the fault ({label})",
+              "FAILED INTERNALLY" in err)
+
+    print(f"fail-closed: {len(checks) - len(failures)}/{len(checks)} passed")
+    if failures:
+        print("\nFAIL-CLOSED FAILURES — the guard is allowing commands it could")
+        print("not actually check. This is the false-green path, reopened:")
+        for l in failures:
+            print(f"  {l}")
+        return 1
+    return 0
+
+
 if __name__ == "__main__":
-    sys.exit(mutate() if "--mutate" in sys.argv else normal())
+    if "--mutate" in sys.argv:
+        sys.exit(mutate())
+    rc = normal()
+    rc |= failclosed()
+    sys.exit(rc)

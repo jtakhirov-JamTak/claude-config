@@ -53,6 +53,7 @@ because the redirect target is an operand, and only the body between the
 delimiters is dropped.
 """
 import json
+import os
 import re
 import sys
 
@@ -91,6 +92,56 @@ MIGRATION_DIR = r"(supabase/|prisma/|db/)?migrations/"
 # place. That is the whole point of the name: the guard needs no carve-out, so
 # there is no carve-out to get out of step with write_guard.py or .gitignore.
 ENVFILE = r"\.env"
+
+# --- Project governance ------------------------------------------------------
+# write_guard.py blocks these paths, but only on Edit|Write|MultiEdit. That hook
+# never sees a shell call, so `cp x CLAUDE.md`, `sed -i CLAUDE.md`,
+# `echo > .claude/settings.json`, `mv`, `tee` and `rm CLAUDE.md` all rewrote or
+# deleted governance with nothing objecting — while CLAUDE.md claimed those
+# files "change only via the human". The invariant was behavioural, not
+# enforced. Same file set as write_guard.GOVERNANCE, resolved the same way, so
+# the two guards cannot drift into disagreeing about what is protected.
+GOVERNANCE_FILE = "CLAUDE.md"
+GOVERNANCE_DIRS = (".claude", ".githooks")
+
+# --- This guard's own control plane ------------------------------------------
+# The two files that decide whether any rule above runs at all: the guard
+# itself, and the settings that register it. A write to either disables
+# everything else here, which makes them the highest-value target in the tree
+# and the last remaining policy-level bypass. Exactly two files, deliberately:
+# protecting all of ~/.claude/hooks/ for symmetry would block edits to the other
+# hooks on no evidence.
+# Resolved lazily, and that is load-bearing: work done in the module BODY runs
+# before the fail-closed handler in __main__ exists, so a bug there exits 1
+# (which Claude Code treats as non-blocking) instead of 2. Inside a function,
+# the same bug lands in the handler and blocks. Measured, not assumed - the
+# first version of this constant was module-level and an induced failure exited
+# 1 with the command allowed.
+CONTROL_PLANE_RELATIVE = ("hooks/shell_guard.py", "settings.json")
+_control_plane_cache = None
+
+
+def control_plane():
+    global _control_plane_cache
+    if _control_plane_cache is None:
+        home = os.path.join(os.path.expanduser("~"), ".claude")
+        _control_plane_cache = frozenset(
+            os.path.normcase(os.path.abspath(os.path.join(home, rel)))
+            for rel in CONTROL_PLANE_RELATIVE)
+    return _control_plane_cache
+
+# Verbs whose file operands are all written. `cp`/`mv`/`install`/`ln` are NOT
+# here: only their LAST operand is a destination, and copying governance OUT
+# (`cp CLAUDE.md /tmp/backup`) is a read, which must stay allowed.
+BASH_WRITE_ALL = {"rm", "shred", "truncate", "unlink", "patch", "tee"}
+BASH_WRITE_LAST = {"cp", "mv", "install", "ln"}
+PS_WRITE_ALL = {"remove-item", "clear-content", "set-content", "add-content",
+                "out-file", "new-item"}
+PS_WRITE_LAST = {"copy-item", "move-item", "rename-item"}
+
+# `>`/`>>` as its own token, and the glued `>file` spelling.
+REDIR_TOKEN = re.compile(r"^\d*(?:>>?|>&)$")
+REDIR_GLUED = re.compile(r"^\d*>>?(?=\S)")
 
 ENV_ASSIGN = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$", re.S)
 PS_ENV_ASSIGN = re.compile(r"\$env:([A-Za-z_][A-Za-z0-9_]*)\s*=\s*['\"]?([^'\";|]*)", re.I)
@@ -672,6 +723,137 @@ def check_recursive_delete(toks, powershell):
                   "deleted first.")
 
 
+def is_governance_path(tok):
+    """True when tok names project governance, resolved the way write_guard does.
+
+    Path-resolved rather than substring-matched, deliberately. `docs/proposed/
+    CLAUDE.md` is a draft of a governance change, not governance, and blocking it
+    would break the only sanctioned route for proposing one. A substring rule
+    could not tell the two apart.
+    """
+    tok = tok.strip()
+    if not tok or tok.startswith("-"):
+        return False
+    root = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+    try:
+        rel = os.path.relpath(os.path.abspath(tok), root).replace("\\", "/")
+    except (ValueError, OSError):
+        return False                      # another drive: not this project
+    if rel.startswith("../"):
+        return False                      # outside the project
+    if rel == GOVERNANCE_FILE:
+        return True
+    return any(rel == d or rel.startswith(d + "/") for d in GOVERNANCE_DIRS)
+
+
+def write_targets(toks, powershell):
+    """Every path this command would WRITE, as a list of raw tokens.
+
+    Token-based, not a regex over the command string, for the same reason
+    strip_quoted() exists: `git commit -m "docs: update CLAUDE.md"` names a
+    protected file in a string literal and must stay allowed. Only the operands
+    of a verb that actually writes are returned, and `cp`/`mv`/`install`/`ln`
+    contribute only their destination - copying a protected file OUT is a read.
+    """
+    if not toks:
+        return []
+    head = toks[0][0].lower()
+    rest = toks[1:]
+    targets = []
+
+    # A redirect names a write target whatever the verb is.
+    for i, (tok, quoted) in enumerate(toks):
+        if quoted:
+            continue
+        if REDIR_TOKEN.match(tok):
+            if i + 1 < len(toks):
+                targets.append(toks[i + 1][0])
+        else:
+            m = REDIR_GLUED.match(tok)
+            if m:
+                targets.append(tok[m.end():])
+
+    operands = [t for t, _q in rest
+                if not t.startswith("-")
+                and not REDIR_TOKEN.match(t)
+                and not REDIR_GLUED.match(t)]
+
+    if powershell:
+        if head in PS_WRITE_ALL:
+            targets += operands
+        elif head in PS_WRITE_LAST and operands:
+            targets.append(operands[-1])
+    else:
+        if head in BASH_WRITE_ALL:
+            targets += operands
+        elif head in BASH_WRITE_LAST and operands:
+            targets.append(operands[-1])
+        elif head == "sed" and any(t.startswith("-i") for t, _q in rest):
+            targets += operands
+        elif head == "dd":
+            targets += [t[3:] for t, _q in rest if t.lower().startswith("of=")]
+
+    return targets
+
+
+def is_control_plane(tok):
+    """True when tok names this guard or its registration.
+
+    Resolved to a real path before comparing, so `~/.claude/settings.json`,
+    `$HOME/.claude/settings.json`, `%USERPROFILE%\\.claude\\settings.json` and a
+    plain absolute path are all the same file. A substring rule would miss every
+    spelling but one.
+    """
+    tok = tok.strip()
+    if not tok or tok.startswith("-"):
+        return False
+    for var in ("$HOME", "${HOME}", "%USERPROFILE%", "$env:USERPROFILE"):
+        if tok.startswith(var):
+            tok = "~" + tok[len(var):]
+            break
+    try:
+        p = os.path.normcase(os.path.abspath(os.path.expanduser(tok)))
+    except (ValueError, OSError):
+        return False
+    return p in control_plane()
+
+
+def check_governance(toks, powershell):
+    """Block shell writes and deletes aimed at project governance."""
+    for t in write_targets(toks, powershell):
+        if is_governance_path(t):
+            block("Blocked: project governance (CLAUDE.md, .claude/, .githooks/) "
+                  "is not writable from the shell. write_guard.py blocks the "
+                  "Edit/Write tools on these paths; this closes the shell route "
+                  "to the same files. Installing a governance change is the "
+                  "human's move - put the proposed text somewhere else and let "
+                  "them apply it.")
+
+
+def check_control_plane(toks, powershell):
+    """Block shell mutation of the guard's own control plane.
+
+    This guard and its registration are what enforce every other rule here, so a
+    write to either one disables the lot. permissions.deny in settings.json
+    covers the file-edit tools; this covers the shell route to the same two
+    files. Reads stay allowed - `cat`, `git diff`, `git add`, a commit message
+    naming the file, and copying one OUT to a backup are all untouched, because
+    only a write DESTINATION is a target.
+
+    Scoped to exactly two files on purpose. Protecting all of ~/.claude/hooks/
+    for symmetry would block editing the other hooks with no evidence that they
+    need it.
+    """
+    for t in write_targets(toks, powershell):
+        if is_control_plane(t):
+            block("Blocked: this is the guard's own control plane "
+                  "(~/.claude/hooks/shell_guard.py, ~/.claude/settings.json). "
+                  "Writing either one disables every rule this guard enforces, "
+                  "so the shell route to them is closed and permissions.deny "
+                  "closes the file-edit tools. Change them yourself, outside "
+                  "an agent session.")
+
+
 def check_evaluator(cmd, powershell):
     deny = EVAL_DENY_PS if powershell else EVAL_DENY_BASH
     allowed = EVAL_ALLOWED_PS if powershell else EVAL_ALLOWED_BASH
@@ -749,6 +931,8 @@ def main():
                 block("Blocked: unterminated quote - the guard cannot parse this "
                       "command, so it fails closed. Rewrite it and retry.")
             check_recursive_delete(toks, powershell)
+            check_governance(toks, powershell)
+            check_control_plane(toks, powershell)
             check_git(toks, extra_env)
 
     agent = (data.get("agent_type") or data.get("agent_name") or "").lower()
@@ -763,5 +947,20 @@ if __name__ == "__main__":
     except SystemExit:
         raise
     except Exception as e:
-        print(f"shell_guard hook error (allowed): {e}", file=sys.stderr)
-        sys.exit(0)
+        # FAIL CLOSED. This used to exit 0 - "hook error (allowed)" - and that
+        # was a demonstrated false-green path, not a theoretical one:
+        # check_governance() referenced `os` without importing it, the NameError
+        # landed here, and the guard waved through every command it was supposed
+        # to be checking while the test suite stayed green on its other cases. A
+        # guard that cannot run has not decided the command is safe; it has not
+        # decided anything, and the only honest answer is to refuse.
+        import traceback
+        print("BLOCKED - shell_guard.py FAILED INTERNALLY, so nothing checked "
+              "this command. This is a bug in the guard itself, not in what you "
+              "ran: it needs repairing before any shell command will be "
+              "permitted. Fix ~/.claude/hooks/shell_guard.py (the file-edit "
+              "tools still reach it), then re-run "
+              "`python ~/.claude/hooks/test_shell_guard.py`.\n"
+              f"{type(e).__name__}: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        sys.exit(2)
