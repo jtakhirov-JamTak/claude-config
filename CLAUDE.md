@@ -53,7 +53,9 @@ IMPORTANT: each of these is unrecoverable once broken.
 - When fixing something, say which layer you believe the cause is in before you edit.
 - Execute the whole plan. Don't stop at the easy half.
 - Change course only on evidence: a failing test, a query result, a log line. Never a hunch.
-- One intent per session. End at a green verify or an explicit stash, never mid-broken.
+- One active intent at a time. Do not mix unrelated work. Related work within the same
+  approved objective or SPEC may continue in the same healthy session. End at a green
+  verify or an explicit stash, never mid-broken.
 
 ## When two fixes have failed
 

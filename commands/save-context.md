@@ -3,8 +3,6 @@ name: save-context
 description: Save session context to a project-local file before /clear. Writes six fixed sections and nothing else. Use before /clear. NOT restoring it afterwards (use /resume-context); NOT durable preferences or decisions (those go to memory, not session context).
 ---
 
-**Run this when the statusline shows context ≥ 45%, when intent changes, or after two
-consecutive failed fixes. Then `/clear`, then `/resume-context`.**
 
 Save the current session state to `session-context.md` at the project root so the next
 session can pick it up.
@@ -21,7 +19,7 @@ context.
 
 ## The file
 
-One intent per session is already the rule, so the file describes one intent. Overwrite
+One active intent at a time is already the rule, so the file describes one intent. Overwrite
 it whole — there is no archive, no category detection, and no per-section merge. Six
 sections, in this order, and nothing else:
 
