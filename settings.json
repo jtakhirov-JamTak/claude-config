@@ -14,6 +14,10 @@
       "Bash(git push -f:*)",
       "PowerShell(git push -f:*)"
     ],
+    "allow": [
+      "Bash(git push:*)",
+      "PowerShell(git push:*)"
+    ],
     "defaultMode": "auto"
   },
   "model": "opus[1m]",
