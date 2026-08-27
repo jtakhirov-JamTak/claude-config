@@ -3,6 +3,13 @@
 **Framework freeze: if config/template commits exceed 1 per 5 app commits for two
 consecutive weeks without a verified P0/P1 incident, framework work stops.**
 
+**Shell-guard threat model:** it stops ordinary and lazy shortcuts; it is not an
+adversarial sandbox. Accepted limits, declared out of scope and not to be probed: nested
+shells/interpreters, interpreter-fed heredocs, git long-option abbreviation, command-line
+git aliases, indirect delete mechanisms, indirect `.env` readers. Put-back trigger: if
+Claude is actually observed routing around a block with one of these forms, graduate to
+real sandboxing — do not add another parsing rule.
+
 Kept verbatim with the numbers that settled them, per the decisions rule in `CLAUDE.md`.
 Read this before re-attempting anything recorded as rejected. Newest first.
 

@@ -3,6 +3,49 @@
 Defects in this repository: the rules, commands, hooks, and permission config. Format
 per the fix-log rule in `CLAUDE.md`. Newest first.
 
+### 2026-08-26 — An `env` verb in front of `git` skipped every git rule
+
+**Problem:** `parse_git()` scans leading `VAR=value` tokens and then requires the next
+token to be `git`. Written as `env VAR=x git ...` — the same environment prefix with the
+`env` verb in front of it — slot 0 holds `env`, which is not an assignment, so the scan
+broke on the first token, `parse_git()` returned `None`, and `check_git()` returned
+having inspected nothing. Not a relaxed rule: the **entire** git family was skipped,
+`core.hooksPath` blocking included. Reproduced at HEAD `443c318`:
+
+```
+env GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null git commit -m x  -> exit 0
+    GIT_CONFIG_KEY_0=core.hooksPath                          git commit -m x      -> exit 2
+```
+
+`ambient_env()` already treated a leading `env` as an assignment prefix (`:473`), so the
+two halves of the guard disagreed about the same syntax.
+
+**Fix:** four lines in `parse_git()` — if token 0 is the verb `env`, start the assignment
+scan at index 1. Nothing else moves: on every pre-existing git case token 0 is `git`, so
+the index stays 0. The evaluator path calls `parse_git()` only when `head == "git"` and
+`env` is not on its allowlist, so that route is unchanged in both directions.
+
+**Applied by hand, outside the session.** `hooks/shell_guard.py` is the guard's own
+control plane — `permissions.deny` closes the file-edit tools and `check_control_plane()`
+closes the shell route — so the agent could not write it, which is the intended asymmetry
+recorded in `DECISIONS.md` (2026-08-25) and was not worked around.
+
+**Regression test:** `test_shell_guard.py`, suite 292 → 295. Two BLOCK cases
+(`env GIT_CONFIG_KEY_0=core.hooksPath ... git commit`, `env GIT_CONFIG_COUNT=1 git
+commit`) and one ALLOW case pinning the other direction (`env GIT_CONFIG_GLOBAL=/tmp/x
+git status` stays 0, matching the bare-prefix row directly above it). Verified
+falsifiable, not assumed: against the unpatched guard the suite reported **293/295**,
+with exactly those two BLOCK rows red at `want exit 2, got 0`, and the ALLOW row green
+either way. All 14 mutations still turn exactly their named sets red.
+
+**Known limit, in scope of the threat-model entry in `DECISIONS.md`:** `env -i git ...`
+and `env -u X git ...` still bypass — a flag is not a `VAR=value` token, so the scan
+still breaks. Deliberate. That entry names another parsing rule as the wrong answer;
+the trigger for change is Claude actually being observed doing it, and the response is
+real sandboxing.
+
+**Found:** brief for this session, then reproduced directly against HEAD before any edit.
+
 ### 2026-08-25 — The guard failed open on its own bugs, and did not protect its own control plane
 
 **Problem:** two false-green paths, one of them already observed in the wild.

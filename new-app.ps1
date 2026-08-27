@@ -144,21 +144,17 @@ if ($hp -ne '.githooks') { Fail "core.hooksPath reads back as '$hp', expected '.
 Write-Host "  core.hooksPath = $hp"
 Ok 'Step 2 core.hooksPath wired to .githooks'
 
-# --- Step 3: make pre-commit executable -------------------------------------
-Step 3 'Marking pre-commit executable'
+# --- Step 3: check pre-commit is executable ---------------------------------
+Step 3 'Verifying pre-commit is executable'
 
-# Windows git checks the file out non-executable and CI/WSL/macOS silently skip
-# non-executable hooks.
-git update-index --chmod=+x .githooks/pre-commit
-if (-not $?) { Fail 'git update-index failed.' }
-
-# Staged, not committed - committing is yours to do. This still verifies the real thing:
-# `git ls-files -s` reads the INDEX, which is exactly where --chmod=+x just wrote, so the
-# check does not depend on a commit having happened.
+# The template commits the hook 100755, so there is nothing to repair here - only
+# something to catch. `git ls-files -s` reads THIS clone's index, which is where a
+# checkout that lost the bit would show up, and CI/WSL/macOS silently skip a
+# non-executable hook. Repairing it here instead would hide that regression.
 $mode = (git ls-files -s .githooks/pre-commit) -split '\s+' | Select-Object -First 1
 if ($mode -ne '100755') { Fail "pre-commit mode is $mode, expected 100755." }
-Write-Host "  pre-commit mode = $mode (staged, not committed)"
-Ok 'Step 3 pre-commit staged with mode 100755'
+Write-Host "  pre-commit mode = $mode"
+Ok 'Step 3 pre-commit verified at mode 100755'
 
 # --- Step 4: the interpreter the hooks call ---------------------------------
 Step 4 'Pointing settings.json at the interpreter that exists'
@@ -205,8 +201,9 @@ Write-Host "  $target"
 Write-Host ''
 Write-Host '  Verified: core.hooksPath, pre-commit mode 100755, interpreter resolves.'
 Write-Host '  NOT verified (needs a live session): hook registration, permission rules.'
-Write-Host '  STAGED, NOT COMMITTED: the pre-commit mode bit, and settings.json if it'
-Write-Host '  was patched. Review with `git status` and commit them yourself.'
+Write-Host '  STAGED, NOT COMMITTED: settings.json, if it was patched. Nothing else -'
+Write-Host '  the mode bit is verified, not written. Review with `git status` and'
+Write-Host '  commit it yourself.'
 Write-Host '  That is what the canary below is for.'
 Write-Host ''
 Write-Host '  TWO THINGS ONLY YOU CAN DO:' -ForegroundColor Yellow

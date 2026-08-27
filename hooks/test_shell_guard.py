@@ -162,6 +162,12 @@ CASES = [
     ("Bash", "GIT_WORK_TREE=/srv/repo git diff --stat", "", 0, "GIT_WORK_TREE diff allowed"),
     ("Bash", "GIT_CONFIG_GLOBAL=/tmp/x git status", "", 0, "GIT_CONFIG read-only allowed"),
 
+    # `env VAR=x git ...` is the same prefix with a verb in front of it. Without
+    # the `env` skip in parse_git() the whole git family is skipped, not relaxed.
+    ("Bash", "env GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null git commit -m x", "", 2, "env-prefixed hooksPath via GIT_CONFIG_KEY"),
+    ("Bash", "env GIT_CONFIG_COUNT=1 git commit -m x", "", 2, "env-prefixed GIT_CONFIG_* before commit"),
+    ("Bash", "env GIT_CONFIG_GLOBAL=/tmp/x git status", "", 0, "env-prefixed read-only git allowed"),
+
     # ==== A1: global options must NOT over-block ==============================
     ("Bash", "git -C repo status", "", 0, "gg -C status allowed"),
     ("Bash", "git -c color.ui=false status", "", 0, "gg -c status allowed"),

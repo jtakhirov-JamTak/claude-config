@@ -405,6 +405,10 @@ SUBCOMMAND = re.compile(r"[A-Za-z][A-Za-z0-9._-]*$")
 def parse_git(toks):
     """-> (env, globals, rest) for a git command, else None."""
     env, i = {}, 0
+    # `env VAR=x git ...` runs git with VAR set. Drop the `env` verb so the
+    # assignments and the git command behind it are judged like a bare prefix.
+    if toks and toks[0][0].lower() == "env":
+        i = 1
     while i < len(toks):
         m = ENV_ASSIGN.match(toks[i][0])
         if not m:

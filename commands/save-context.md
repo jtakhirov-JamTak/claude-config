@@ -19,7 +19,7 @@ context.
 
 ## The file
 
-One active intent at a time is already the rule, so the file describes one intent. Overwrite
+The file describes the one active intent. Overwrite
 it whole — there is no archive, no category detection, and no per-section merge. Six
 sections, in this order, and nothing else:
 

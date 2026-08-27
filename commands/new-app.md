@@ -30,11 +30,14 @@ Step 0 preflights everything that can be checked before anything is created:
 the name locally and on GitHub, the dev root, `gh` and `git`, that the template
 repo is reachable, and that the interpreter the hooks invoke actually resolves.
 Only then does it create the repo from the template, wire `core.hooksPath`, and
-set and verify the `100755` bit on `.githooks/pre-commit` — patching
-`settings.json` to `py` if that is the interpreter that exists.
+verify the `100755` bit on `.githooks/pre-commit` — the template commits the
+hook executable, so the scaffold only checks that this clone still has it, and
+fails if it does not. It patches `settings.json` to `py` if that is the
+interpreter that exists.
 
-**The script makes no commits.** The mode bit and any `settings.json` patch are
-left staged. Tell the human to review with `git status` and commit them.
+**The script makes no commits, and it does not write the mode bit.** Only a
+`settings.json` patch is ever left staged. Tell the human to review with
+`git status` and commit it.
 
 ## Report
 
